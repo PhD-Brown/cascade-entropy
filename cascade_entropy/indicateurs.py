@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from ._validation import serie_finie
+
 
 def _rs_segment(segment: np.ndarray) -> float:
     """Statistique R/S d'un segment.
@@ -41,7 +43,7 @@ def rs_par_echelle(
 
     Retourne les échelles effectivement utilisées et les R/S correspondantes.
     """
-    serie = np.asarray(serie, dtype=float)
+    serie = serie_finie(serie)
     n_total = serie.size
     if n_total < 32:
         raise ValueError("Série trop courte pour une analyse R/S (minimum 32 points).")
@@ -93,7 +95,7 @@ def hurst(
 
 def charge_moyenne(taux_de_charge: np.ndarray) -> float:
     """Taux de charge moyen des lignes pour un état du réseau."""
-    return float(np.mean(taux_de_charge))
+    return float(np.mean(serie_finie(taux_de_charge)))
 
 
 def charge_maximale(taux_de_charge: np.ndarray) -> float:
@@ -103,4 +105,4 @@ def charge_maximale(taux_de_charge: np.ndarray) -> float:
     directement la cascade dans le modèle, donc toute mesure entropique doit être
     comparée à lui.
     """
-    return float(np.max(taux_de_charge))
+    return float(np.max(serie_finie(taux_de_charge)))

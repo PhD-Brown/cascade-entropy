@@ -22,6 +22,8 @@ from math import factorial, log
 
 import numpy as np
 
+from ._validation import entier_positif, serie_finie
+
 TAILLE_BLOC = 512
 
 
@@ -38,9 +40,16 @@ def permutation(
     distribution des ordres observés.
 
     Normalisée, la mesure vaut 0 pour une série parfaitement monotone et tend vers
-    1 pour une série non corrélée.
+    1 pour une série non corrélée à valeurs continues.
+
+    Les égalités exactes sont départagées par ordre temporel (tri stable) :
+    le point le plus ancien passe en premier. Aucun bruit artificiel n’est ajouté.
+    Une série constante a ainsi une PE nulle par convention. Pour des données
+    comportant beaucoup de zéros, cette convention doit accompagner les résultats.
     """
-    serie = np.asarray(serie, dtype=float)
+    serie = serie_finie(serie)
+    dimension = entier_positif(dimension, "dimension", minimum=2)
+    delai = entier_positif(delai, "delai")
     n_fenetres = serie.size - (dimension - 1) * delai
     if n_fenetres < 2:
         raise ValueError("Série trop courte pour cette dimension et ce délai.")
@@ -49,11 +58,8 @@ def permutation(
     fenetres = serie[np.arange(n_fenetres)[:, None] + indices]
     ordres = np.argsort(fenetres, axis=1, kind="stable")
 
-    # Chaque motif ordinal devient un entier unique, ce qui permet de compter les
-    # occurrences sans construire de dictionnaire.
-    poids = dimension ** np.arange(dimension)
-    codes = ordres @ poids
-    _, effectifs = np.unique(codes, return_counts=True)
+    # Comptage direct des motifs, sans risque de dépassement d’un code entier.
+    _, effectifs = np.unique(ordres, axis=0, return_counts=True)
 
     p = effectifs / effectifs.sum()
     h = -np.sum(p * np.log(p))
@@ -109,7 +115,14 @@ def echantillon(
     Retourne NaN lorsqu'aucun appariement n'est trouvé, cas où la mesure est
     indéfinie plutôt que nulle.
     """
-    serie = np.asarray(serie, dtype=float)
+    serie = serie_finie(serie)
+    m = entier_positif(m, "m")
+    if not np.isfinite(r) or r <= 0:
+        raise ValueError("r doit être fini et strictement positif.")
+    if ecart_reference is not None and (
+        not np.isfinite(ecart_reference) or ecart_reference < 0
+    ):
+        raise ValueError("ecart_reference doit être fini et positif ou nul.")
     n = serie.size
     if n < m + 2:
         raise ValueError("Série trop courte pour cette dimension d'immersion.")
@@ -136,7 +149,8 @@ def granulariser(serie: np.ndarray, echelle: int) -> np.ndarray:
     1 la série est inchangée, à l'échelle 2 chaque paire de points est remplacée
     par sa moyenne, et ainsi de suite.
     """
-    serie = np.asarray(serie, dtype=float)
+    serie = serie_finie(serie)
+    echelle = entier_positif(echelle, "echelle")
     n = serie.size // echelle
     if n == 0:
         raise ValueError("Échelle plus grande que la série.")
@@ -159,7 +173,11 @@ def multiechelle(
 
     Retourne les échelles retenues et les entropies correspondantes.
     """
-    serie = np.asarray(serie, dtype=float)
+    serie = serie_finie(serie)
+    echelles = entier_positif(echelles, "echelles")
+    m = entier_positif(m, "m")
+    if not np.isfinite(r) or r <= 0:
+        raise ValueError("r doit être fini et strictement positif.")
     ecart = serie.std(ddof=0)
 
     liste_echelles, valeurs = [], []

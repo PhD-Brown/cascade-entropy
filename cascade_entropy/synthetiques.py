@@ -34,7 +34,8 @@ def bruit_puissance(
 
     beta = 0 donne un bruit blanc (non corrélé).
     beta = 1 donne un bruit en 1/f (corrélé à longue portée).
-    beta = 2 donne une marche aléatoire.
+    beta = 2 donne un bruit brun spectral en 1/f², et non une somme explicite
+    d’incréments indépendants.
 
     La série est centrée et normalisée à variance unitaire.
     """
