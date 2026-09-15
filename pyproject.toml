@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cascade-entropy"
+version = "0.1.0"
+description = "Analyse entropique des séries temporelles de pannes en cascade dans les réseaux électriques de transport"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Alex Baker" }]
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "matplotlib>=3.7",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4"]
+
+[tool.setuptools.packages.find]
+include = ["cascade_entropy*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
