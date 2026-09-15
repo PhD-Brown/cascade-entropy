@@ -45,7 +45,7 @@ def courbe_moyenne(beta: float, rng: np.random.Generator):
         )
         resultats.append(valeurs)
     empilees = np.vstack(resultats)
-    return echelles, empilees.mean(axis=0), empilees.std(axis=0)
+    return echelles, empilees.mean(axis=0), empilees.std(axis=0, ddof=1)
 
 
 def main() -> None:
@@ -70,7 +70,9 @@ def main() -> None:
     ax.set_title(f"Entropie multiéchelle, N = {N}, {N_REALISATIONS} réalisations")
     ax.legend(frameon=False)
     ax.grid(alpha=0.25, linewidth=0.5)
-    fig.tight_layout()
+    fig.text(0.5, 0.01, "Moyenne ± écart-type entre réalisations ; m = 2 ; "
+             "r = 0,15 × écart-type de la série originale", ha="center", fontsize=8)
+    fig.tight_layout(rect=(0, 0.07, 1, 1))
 
     SORTIE.parent.mkdir(exist_ok=True)
     fig.savefig(SORTIE, dpi=150)

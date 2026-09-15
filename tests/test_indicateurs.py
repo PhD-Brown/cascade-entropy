@@ -42,7 +42,7 @@ def test_bruit_en_un_sur_f_persistant():
     assert exposants(beta=1.0).mean() > 0.7
 
 
-def test_marche_aleatoire_fortement_persistante():
+def test_bruit_brun_pente_rs_elevee():
     assert exposants(beta=2.0).mean() > 0.85
 
 
