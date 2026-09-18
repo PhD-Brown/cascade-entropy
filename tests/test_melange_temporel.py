@@ -1,12 +1,8 @@
 """Contrôle rapide de l'expérience, sans imposer le résultat scientifique."""
 
-import runpy
-from pathlib import Path
-
 import numpy as np
 
-SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "02_melange_temporel.py"
-analyser = runpy.run_path(str(SCRIPT))["analyser"]
+from cascade_entropy.controles import analyser
 
 
 def test_reproductibilite_et_nombre_de_melanges():

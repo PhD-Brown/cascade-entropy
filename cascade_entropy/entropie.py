@@ -27,6 +27,54 @@ from ._validation import entier_positif, serie_finie
 TAILLE_BLOC = 512
 
 
+def shannon(probabilites: np.ndarray) -> float:
+    """Entropie de Shannon d'une distribution de probabilité, en nats.
+
+    Les probabilités doivent être positives et sommer à 1. Les termes nuls sont
+    ignorés, conformément à la convention 0 log 0 = 0.
+    """
+    p = serie_finie(probabilites)
+    if np.any(p < 0):
+        raise ValueError("Une probabilité ne peut pas être négative.")
+    if not np.isclose(p.sum(), 1.0, atol=1e-9):
+        raise ValueError(f"Les probabilités ne somment pas à 1 (somme = {p.sum():.3e}).")
+    non_nuls = p[p > 0]
+    return float(-np.sum(non_nuls * np.log(non_nuls)))
+
+
+def entropie_repartition(valeurs: np.ndarray, normaliser: bool = False) -> float:
+    """Entropie de la répartition d'une quantité positive entre plusieurs éléments.
+
+    Appliquée aux flux de puissance, elle mesure le degré de concentration de la
+    puissance dans le réseau : maximale lorsque toutes les lignes portent la même
+    charge, minimale lorsqu'une seule les porte toutes.
+
+    Contrairement aux mesures temporelles, cette entropie porte sur un seul
+    instant : elle décrit une répartition dans l'espace, pas une dynamique. C'est
+    elle qui produit, jour après jour, la série temporelle à analyser ensuite.
+
+    Avec `normaliser`, le résultat est divisé par log(N) et se lit entre 0 et 1.
+    """
+    valeurs = np.abs(serie_finie(valeurs))
+    total = valeurs.sum()
+    if total == 0:
+        return np.nan
+    h = shannon(valeurs / total)
+    return h / np.log(valeurs.size) if normaliser else h
+
+
+def nombre_effectif(valeurs: np.ndarray) -> float:
+    """Nombre effectif d'éléments portant une répartition, exp(H).
+
+    Interprétation directe : si dix lignes se partagent la puissance également,
+    la valeur est 10 ; si une seule ligne porte tout, elle est 1. Deux réseaux
+    transportant la même puissance totale mais avec des nombres effectifs de 5 et
+    de 2,2 n'ont pas la même fragilité.
+    """
+    h = entropie_repartition(valeurs)
+    return float(np.exp(h)) if np.isfinite(h) else np.nan
+
+
 def permutation(
     serie: np.ndarray,
     dimension: int = 3,

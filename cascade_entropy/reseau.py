@@ -252,6 +252,29 @@ def taux_de_charge(flux_lignes: np.ndarray, limites: np.ndarray) -> np.ndarray:
     return np.abs(flux_lignes) / limites
 
 
+def limites_par_niveau(reseau: Reseau, capacites: np.ndarray | None = None) -> np.ndarray:
+    """Capacités de lignes décroissant avec la profondeur de l'arbre.
+
+    C'est la convention du modèle de référence : la capacité d'une ligne dépend
+    du niveau qu'elle alimente, les lignes proches de la racine devant écouler la
+    puissance de tout leur sous-arbre. Les valeurs par défaut sont celles
+    publiées pour les réseaux en arbre, avec une impédance unitaire sur toutes
+    les lignes.
+
+    Contrairement à un dimensionnement à marge uniforme, cette convention produit
+    des taux de charge hétérogènes : sans cela, toutes les lignes seraient
+    saturées simultanément et le taux de charge maximal se confondrait avec le
+    taux moyen.
+    """
+    if capacites is None:
+        capacites = np.array([15620.0, 7748.7, 3812.9, 1844.9, 860.97, 368.99, 123.00])
+
+    niveau_ligne = reseau.niveaux[reseau.lignes[:, 1]] - 1
+    if niveau_ligne.max() >= capacites.size:
+        raise ValueError("Pas assez de capacités fournies pour la profondeur de l'arbre.")
+    return capacites[niveau_ligne]
+
+
 def limites_depuis_cas_de_base(
     reseau: Reseau,
     injections: np.ndarray,

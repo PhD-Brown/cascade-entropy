@@ -228,3 +228,6 @@ figures/
 
 # Aucune donnée externe ne doit entrer dans le dépôt
 donnees_externes/
+
+# Carnets : seul le .py apparié par jupytext est versionné
+notebooks/*.ipynb
