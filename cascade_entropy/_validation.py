@@ -1,4 +1,7 @@
-"""Contrôles communs aux mesures : aucune donnée manquante ignorée."""
+"""
+Contrôles communs aux mesures : aucune donnée manquante ignorée.
+Sert surtout à valider les entrées des fonctions d'entropie.
+"""
 
 from numbers import Integral
 
@@ -6,7 +9,9 @@ import numpy as np
 
 
 def serie_finie(serie):
-    """Exige une série réelle, non vide, unidimensionnelle et finie."""
+    """
+    Exige une série réelle, non vide, unidimensionnelle et finie.
+    """
     if np.iscomplexobj(serie):
         raise ValueError("La série doit être réelle.")
     valeurs = np.asarray(serie, dtype=float)

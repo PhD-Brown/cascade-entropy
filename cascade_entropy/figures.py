@@ -227,3 +227,45 @@ def reseau_en_arbre(reseau, taux=None, titre: str = ""):
         ax.set_title(titre)
     fig.tight_layout()
     return fig
+
+
+def distributions_taux(taux_par_cas: dict[str, np.ndarray], titre: str = ""):
+    """Distributions des taux de charge des lignes, un cas par courbe.
+
+    C'est la représentation de l'observable retenue dans SO2 : deux réseaux
+    peuvent avoir le même taux de charge moyen et des distributions très
+    différentes, donc des vulnérabilités différentes.
+    """
+    fig, ax = plt.subplots()
+    bords = np.linspace(0, 1, 26)
+    for (nom, taux), couleur in zip(taux_par_cas.items(), CYCLE):
+        ax.hist(taux, bins=bords, histtype="step", linewidth=1.8,
+                color=couleur, label=nom)
+    ax.set_xlabel("taux de charge de la ligne")
+    ax.set_ylabel("nombre de lignes")
+    ax.legend()
+    if titre:
+        ax.set_title(titre)
+    fig.tight_layout()
+    return fig
+
+
+def transitions(ratios, courbes: dict[str, np.ndarray], seuils: dict[str, float],
+                ylabel: str = "", titre: str = ""):
+    """Grandeur en fonction du niveau de charge, avec repérage des transitions."""
+    fig, ax = plt.subplots()
+    for (nom, valeurs), couleur in zip(courbes.items(), CYCLE):
+        ax.plot(ratios, valeurs, color=couleur, label=nom)
+    for etiquette, seuil in seuils.items():
+        ax.axvline(seuil, color=COULEURS["alerte"], linestyle="--", linewidth=1)
+        ax.annotate(etiquette, xy=(seuil, ax.get_ylim()[1]), xytext=(4, -12),
+                    textcoords="offset points", fontsize=8,
+                    color=COULEURS["alerte"], va="top")
+    ax.set_xlabel("$P_D / P_C$")
+    ax.set_ylabel(ylabel)
+    ax.legend()
+    ax.margins(x=0.02)
+    if titre:
+        ax.set_title(titre)
+    fig.tight_layout()
+    return fig
