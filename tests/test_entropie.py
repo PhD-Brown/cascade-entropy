@@ -1,4 +1,5 @@
-"""Validation du module `entropie`.
+"""
+Validation du module `entropie`.
 
 Critères du plan de travail : entropie de permutation basse sur un signal
 périodique et proche du maximum sur un bruit non corrélé ; en multiéchelle,
@@ -26,27 +27,45 @@ GRAINE = 20260915
 
 
 def test_permutation_basse_sur_signal_periodique():
-    """Un signal périodique n'utilise que quelques motifs ordinaux."""
+    """
+    Vérifie qu'un signal périodique est très ordonné : il n'utilise qu'un petit nombre
+    de motifs ordinaux, ce qui donne une entropie de permutation faible.
+    """
     assert permutation(periodique(4096, periode=50)) < 0.6
 
 
 def test_permutation_maximale_sur_bruit_non_correle():
-    """Un bruit non corrélé utilise tous les motifs de façon équiprobable."""
+    """
+    Vérifie qu'un bruit non corrélé est presque maximally désordonné : les motifs
+    ordinaux sont répartis de façon quasi uniforme, ce qui tend vers la valeur maximale.
+    """
     rng = np.random.default_rng(GRAINE)
     assert permutation(bruit_puissance(4096, 0.0, rng)) > 0.99
 
 
 def test_permutation_discrimine_periodique_et_bruit():
+    """
+    Vérifie que l'entropie de permutation distingue bien un signal périodique d'un bruit
+    non corrélé, avec une valeur plus faible pour le signal régulier.
+    """
     rng = np.random.default_rng(GRAINE)
     assert permutation(periodique(4096)) < permutation(bruit_puissance(4096, 0.0, rng))
 
 
 def test_permutation_serie_trop_courte_rejetee():
+    """
+    Vérifie que la fonction rejette une série trop courte pour calculer des motifs
+    de dimension donnée, en levant une ValueError.
+    """
     with pytest.raises(ValueError):
         permutation(np.array([1.0, 2.0]), dimension=5)
 
 
 def test_granularisation_reduit_la_longueur():
+    """
+    Vérifie que la granularisation réduit la longueur de la série en moyennant par blocs,
+    tout en conservant la bonne échelle de calcul et la première valeur attendue.
+    """
     serie = np.arange(100, dtype=float)
     assert granulariser(serie, 1).size == 100
     assert granulariser(serie, 5).size == 20
@@ -54,7 +73,10 @@ def test_granularisation_reduit_la_longueur():
 
 
 def test_sampen_plus_eleve_pour_bruit_non_correle_a_echelle_un():
-    """À l'échelle 1, le bruit non corrélé est plus irrégulier que le 1/f."""
+    """
+    Vérifie que, à l'échelle 1, le bruit blanc est plus irrégulier que le bruit rose,
+    ce qui est interprété comme une entropie plus élevée pour le signal non corrélé.
+    """
     rng = np.random.default_rng(GRAINE)
     blanc = echantillon(bruit_puissance(2048, 0.0, rng))
     rose = echantillon(bruit_puissance(2048, 1.0, rng))
@@ -62,11 +84,10 @@ def test_sampen_plus_eleve_pour_bruit_non_correle_a_echelle_un():
 
 
 def test_croisement_multiechelle():
-    """Résultat de Costa : le bruit non corrélé s'effondre, le 1/f se maintient.
-
-    C'est la justification méthodologique du recours au multiéchelle plutôt qu'à
-    l'entropie brute : une forte irrégularité à une seule échelle n'est pas une
-    forte complexité.
+    """
+    Vérifie le résultat de Costa en multiéchelle : le bruit blanc est très irrégulier
+    à petite échelle mais s'effondre à grande échelle, tandis que le bruit rose garde
+    une complexité plus stable sur plusieurs échelles.
     """
     rng = np.random.default_rng(GRAINE)
     _, blanc = multiechelle(bruit_puissance(8192, 0.0, rng), echelles=10)

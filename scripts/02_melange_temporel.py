@@ -1,4 +1,5 @@
-"""Contrôle de l'ordre temporel : une série 1/f et ses permutations.
+"""
+Contrôle de l'ordre temporel : une série 1/f et ses permutations.
 
 Depuis la racine, après `python -m pip install -e ".[dev]"` :
     python scripts/02_melange_temporel.py

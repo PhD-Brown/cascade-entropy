@@ -1,4 +1,5 @@
-"""Boucle de cascade sur une journée.
+"""
+Boucle de cascade sur une journée.
 
 Troisième module du fil A. Une ligne est dite surchargée lorsqu'elle est à moins
 de 1 % de sa limite : le dispatch n'autorise jamais le dépassement, c'est la

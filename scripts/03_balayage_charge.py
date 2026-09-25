@@ -1,4 +1,5 @@
-"""Balayage du niveau de charge : les deux transitions du modèle.
+"""
+Balayage du niveau de charge : les deux transitions du modèle.
 
 Reproduit qualitativement la figure de référence de Carreras et al. En augmentant
 la demande à profil fixe, deux changements de régime apparaissent.

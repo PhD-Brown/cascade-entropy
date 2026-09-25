@@ -1,4 +1,5 @@
-"""Topologie du réseau et calcul des flux de puissance en approximation DC.
+"""
+Topologie du réseau et calcul des flux de puissance en approximation DC.
 
 Premier module du fil A. Il ne dépend d'aucun autre module du projet.
 
@@ -36,7 +37,15 @@ import numpy as np
 
 @dataclass
 class Reseau:
-    """Description complète d'un réseau de transport.
+    """
+    Description complète d'un réseau de transport.
+
+    Une instance de cette classe contient toute la géométrie du réseau :
+    - le nombre de nœuds,
+    - la liste des lignes connectées,
+    - leurs réactances,
+    - les nœuds producteurs et consommateurs,
+    - les limites de transport éventuelles.
 
     Les lignes sont orientées arbitrairement : un flux négatif signifie que la
     puissance circule dans le sens opposé à l'orientation retenue. Cette
@@ -46,7 +55,7 @@ class Reseau:
 
     n_noeuds: int
     lignes: np.ndarray            # (n_lignes, 2), indices des extrémités
-    reactances: np.ndarray        # (n_lignes,)
+    reactances: np.ndarray        # (n_lignes,), résistance électrique linéarisée
     generateurs: np.ndarray       # indices des nœuds producteurs
     charges: np.ndarray           # indices des nœuds consommateurs
     limites: np.ndarray | None = None      # (n_lignes,), capacités F_max
@@ -55,13 +64,18 @@ class Reseau:
 
     @property
     def n_lignes(self) -> int:
+        """Nombre total de lignes du réseau."""
         return len(self.lignes)
 
     def __post_init__(self) -> None:
+        """Vérifie rapidement que le réseau est cohérent avant utilisation."""
+        # Une réactance par ligne est nécessaire pour définir la susceptance de la branche.
         if self.reactances.shape != (self.n_lignes,):
             raise ValueError("Une réactance par ligne est requise.")
+        # Si des limites sont fournies, il faut en avoir une par ligne.
         if self.limites is not None and self.limites.shape != (self.n_lignes,):
             raise ValueError("Une limite par ligne est requise.")
+        # Le nœud de référence doit appartenir au graphe ; sinon, le système de résolution est mal posé.
         if not 0 <= self.reference < self.n_noeuds:
             raise ValueError("Nœud de référence hors du réseau.")
 
@@ -78,31 +92,29 @@ def arbre(
     niveau_generateurs: int | None = None,
     reactance: float = 1.0,
 ) -> Reseau:
-    """Réseau en arbre, suivant la construction de Carreras et al.
+    """Construit un arbre hiérarchique avec un niveau de générateurs fixé.
 
-    La racine porte `branches_racine` liens, puis chaque nœud du bord reçoit
-    `branches` descendants à chaque génération. Tous les nœuds internes ont donc
-    trois lignes incidentes, ce qui correspond approximativement à la moyenne
-    observée sur les grands réseaux réels.
+    La logique est simple : on part de la racine, puis on crée des descendants
+    successifs. Chaque génération ajoute de nouveaux nœuds, de sorte qu'un arbre
+    de profondeur n contient un nombre de nœuds bien défini et une topologie
+    reproductible.
 
-    Avec les valeurs par défaut, le nombre de nœuds suit 1, 4, 10, 22, 46, 94,
-    190, 382 selon le nombre de générations, soit les tailles utilisées dans la
-    littérature de référence.
-
-    Les générateurs sont placés à un niveau donné de l'arbre, tous les autres
-    nœuds étant des charges. Par défaut au troisième niveau, comme dans la
-    littérature de référence, ou au dernier niveau pour les arbres moins
-    profonds.
+    Cette construction est importante car elle produit les graphes utilisés dans
+    les simulations et les tests : ce sont des arbres dont les propriétés de
+    calcul sont analytiques, notamment pour vérifier les flux.
     """
     if n_generations < 1:
         raise ValueError("Au moins une génération est nécessaire.")
     if niveau_generateurs is None:
         niveau_generateurs = min(3, n_generations)
 
-    niveaux = [0]                 # niveau de chaque nœud, la racine est au niveau 0
+    # Chaque nœud est repéré par son niveau dans l'arbre: 0 pour la racine.
+    niveaux = [0]
     lignes: list[tuple[int, int]] = []
     bord = [0]
 
+    # On étend l'arbre génération par génération.
+    # À chaque étape, chaque nœud du bord crée plusieurs enfants.
     for generation in range(1, n_generations + 1):
         n_enfants = branches_racine if generation == 1 else branches
         nouveau_bord = []
@@ -119,6 +131,8 @@ def arbre(
 
     if niveau_generateurs > n_generations:
         raise ValueError("Niveau des générateurs au-delà de la profondeur de l'arbre.")
+
+    # Les générateurs sont les nœuds d'un niveau choisi ; les autres sont des charges.
     generateurs = np.flatnonzero(niveaux == niveau_generateurs)
     charges = np.flatnonzero(niveaux != niveau_generateurs)
 
@@ -139,24 +153,35 @@ def arbre(
 
 
 def matrice_incidence(reseau: Reseau) -> np.ndarray:
-    """Matrice d'incidence orientée, de dimension (n_lignes, n_noeuds).
+    """
+    Construit la matrice d'incidence orientée, de dimension (n_lignes, n_noeuds).
 
-    Chaque ligne de la matrice porte +1 à son nœud de départ et -1 à son nœud
-    d'arrivée.
+    Chaque ligne correspond à une branche. Sur cette ligne, on marque :
+    - +1 au nœud de départ,
+    - -1 au nœud d'arrivée.
+
+    Cette matrice est l'outil central pour écrire le laplacien du réseau et ainsi
+    relier injections et angles de phase.
     """
     M = np.zeros((reseau.n_lignes, reseau.n_noeuds))
     indices = np.arange(reseau.n_lignes)
-    M[indices, reseau.lignes[:, 0]] = 1.0
-    M[indices, reseau.lignes[:, 1]] = -1.0
+    M[indices, reseau.lignes[:, 0]] = 1.0   # le flux part du premier nœud
+    M[indices, reseau.lignes[:, 1]] = -1.0  # et arrive au second nœud
     return M
 
 
 def est_connexe(reseau: Reseau) -> bool:
-    """Vérifie que tous les nœuds sont atteignables depuis le nœud de référence."""
+    """
+    Vérifie qu'un graphe est entièrement connecté.
+
+    On part du nœud de référence, puis on explose le graphe en largeur via une pile
+    de parcours. Si on visite tous les nœuds, le réseau est connexe ; sinon, il
+    comporte au moins une composante isolée.
+    """
     voisins: list[list[int]] = [[] for _ in range(reseau.n_noeuds)]
     for i, j in reseau.lignes:
-        voisins[i].append(j)
-        voisins[j].append(i)
+        voisins[int(i)].append(int(j))
+        voisins[int(j)].append(int(i))
 
     vus = {reseau.reference}
     pile = [reseau.reference]
@@ -170,7 +195,7 @@ def est_connexe(reseau: Reseau) -> bool:
 
 
 def degres(reseau: Reseau) -> np.ndarray:
-    """Nombre de lignes incidentes à chaque nœud."""
+    """Compte le nombre de lignes incidentes à chaque nœud."""
     return np.bincount(reseau.lignes.ravel(), minlength=reseau.n_noeuds)
 
 
@@ -180,10 +205,13 @@ def degres(reseau: Reseau) -> np.ndarray:
 
 
 def laplacien(reseau: Reseau) -> np.ndarray:
-    """Laplacien pondéré par les susceptances, de dimension (n_noeuds, n_noeuds).
+    """
+    Construit le laplacien pondéré du réseau.
 
-    C'est la matrice B telle que P = B theta. Elle est singulière : l'ajout d'une
-    constante à tous les angles laisse les flux inchangés.
+    On multiplie la matrice d'incidence par ses susceptances, afin d'obtenir la
+    matrice B qui relie injections et angles : P = B * theta. Dans ce modèle,
+    la puissance injectée à un nœud dépend de la différence d'angle avec ses
+    voisins et de la susceptance de la ligne.
     """
     M = matrice_incidence(reseau)
     susceptances = 1.0 / reseau.reactances
@@ -191,30 +219,32 @@ def laplacien(reseau: Reseau) -> np.ndarray:
 
 
 def matrice_de_flux(reseau: Reseau) -> np.ndarray:
-    """Matrice A telle que F = A P, où P exclut le nœud de référence.
+    """
+    Calcule la matrice de transfert des flux.
 
-    Construite une seule fois pour une topologie donnée, puis réutilisée à chaque
-    résolution : c'est ce qui rend le calcul des flux quasi instantané une fois
-    la topologie fixée.
-
-    L'inversion se fait par factorisation plutôt que par inversion explicite,
-    plus stable numériquement.
+    Le but est de passer directement des injections de puissance aux flux de ligne
+    par une relation linéaire F = A * P, sans refaire chaque fois toute la
+    résolution du système. C'est un gain de performance majeur lorsqu'on simule
+    beaucoup de configurations.
     """
     autres = _indices_hors_reference(reseau)
     B_reduit = laplacien(reseau)[np.ix_(autres, autres)]
     M = matrice_incidence(reseau)[:, autres]
     susceptances = 1.0 / reseau.reactances
 
-    # F = diag(b) M theta, avec theta = B_reduit^{-1} P.
+    # F = diag(b) * M * theta, et theta = B_reduit^{-1} * P.
+    # On construit la matrice A directement pour les nœuds hors référence.
     return (susceptances[:, None] * M) @ np.linalg.inv(B_reduit)
 
 
 def flux(reseau: Reseau, injections: np.ndarray, A: np.ndarray | None = None) -> np.ndarray:
-    """Flux sur chaque ligne pour un vecteur d'injections par nœud.
+    """
+    Calcule les flux sur les lignes à partir des injections.
 
-    `injections` couvre tous les nœuds, positif pour une production, négatif pour
-    une consommation. Sa somme doit être nulle. Passer `A` évite de reconstruire
-    la matrice de flux à chaque appel.
+    Les injections positives correspondent à la production, négatives à la
+    consommation. La somme des injections doit être nulle : l'énergie produite
+    doit être égale à l'énergie consommée, sinon le système ne représente pas un
+    point d'équilibre physique.
     """
     injections = np.asarray(injections, dtype=float)
     if injections.shape != (reseau.n_noeuds,):
@@ -226,14 +256,16 @@ def flux(reseau: Reseau, injections: np.ndarray, A: np.ndarray | None = None) ->
 
     if A is None:
         A = matrice_de_flux(reseau)
+    # La matrice A donne le flux sur chaque ligne à partir des injections hors référence.
     return A @ injections[_indices_hors_reference(reseau)]
 
 
 def angles(reseau: Reseau, injections: np.ndarray) -> np.ndarray:
-    """Angles de phase, le nœud de référence étant fixé à zéro.
+    """
+    Résout les angles de phase du réseau dans l'approximation DC.
 
-    Ces angles sont des variables statiques de l'approximation DC : ils décrivent
-    un état d'équilibre, pas une trajectoire temporelle.
+    Les angles sont définis à une constante près, donc on fixe le nœud de
+    référence à zéro. Cela rend le système solvable sans ambiguïté.
     """
     autres = _indices_hors_reference(reseau)
     B_reduit = laplacien(reseau)[np.ix_(autres, autres)]
@@ -243,32 +275,30 @@ def angles(reseau: Reseau, injections: np.ndarray) -> np.ndarray:
 
 
 def taux_de_charge(flux_lignes: np.ndarray, limites: np.ndarray) -> np.ndarray:
-    """Taux de charge M_l = |F_l| / F_l_max, ligne par ligne.
+    """
+    Calcule le rapport entre le flux et la capacité supportée par chaque ligne.
 
-    La valeur 1 correspond à une ligne à sa limite. Le dispatch n'autorise jamais
-    de dépassement : c'est la saturation, et non le dépassement, qui déclenche
-    l'avarie dans le modèle de cascade.
+    Une valeur de 1 signifie que la ligne est exactement à sa limite. Les modèles
+    de cascade traitent la saturation comme un seuil critique : la ligne peut
+    saturer, mais on ne veut pas qu'elle dépasse sa capacité dans le modèle.
     """
     return np.abs(flux_lignes) / limites
 
 
 def limites_par_niveau(reseau: Reseau, capacites: np.ndarray | None = None) -> np.ndarray:
-    """Capacités de lignes décroissant avec la profondeur de l'arbre.
+    """
+    Retourne une capacité par ligne selon la profondeur du nœud aval.
 
-    C'est la convention du modèle de référence : la capacité d'une ligne dépend
-    du niveau qu'elle alimente, les lignes proches de la racine devant écouler la
-    puissance de tout leur sous-arbre. Les valeurs par défaut sont celles
-    publiées pour les réseaux en arbre, avec une impédance unitaire sur toutes
-    les lignes.
-
-    Contrairement à un dimensionnement à marge uniforme, cette convention produit
-    des taux de charge hétérogènes : sans cela, toutes les lignes seraient
-    saturées simultanément et le taux de charge maximal se confondrait avec le
-    taux moyen.
+    L'idée est qu'une ligne proche de la racine doit transporter la puissance de
+    tout le sous-arbre qu'elle alimente. Les capacités décroissent donc en
+    fonction de la hiérarchie. C'est une convention de modélisation, pas un
+    théorème physique universel.
     """
     if capacites is None:
+        # Valeurs de référence pour les arbres de profondeur croissante.
         capacites = np.array([15620.0, 7748.7, 3812.9, 1844.9, 860.97, 368.99, 123.00])
 
+    # Le niveau d'une ligne est celui du nœud enfant, donc le sous-arbre qu'elle contient.
     niveau_ligne = reseau.niveaux[reseau.lignes[:, 1]] - 1
     if niveau_ligne.max() >= capacites.size:
         raise ValueError("Pas assez de capacités fournies pour la profondeur de l'arbre.")
@@ -281,19 +311,18 @@ def limites_depuis_cas_de_base(
     marge: float = 1.5,
     plancher: float = 1e-3,
 ) -> np.ndarray:
-    """Capacités de lignes dimensionnées sur un cas de base.
+    """
+    Dimensionne les limites à partir d'un cas de base.
 
-    Chaque ligne reçoit une capacité égale au flux qu'elle porte dans le cas de
-    base, multiplié par une marge. Le plancher évite qu'une ligne peu sollicitée
-    dans ce cas particulier se retrouve avec une capacité nulle.
-
-    Cette convention garantit qu'une solution sans surcharge existe au cas de
-    base, ce qui est le point de départ attendu avant toute montée en charge.
+    On prend le flux observé dans le cas de base, on le multiplie par une marge de
+    sécurité, puis on impose un plancher minimal. Cela garantit que le cas de base
+    est sans surcharge et qu'une ligne peu chargée ne se retrouve pas avec une
+    capacité nulle.
     """
     reference = np.abs(flux(reseau, injections))
     return np.maximum(marge * reference, plancher * reference.max())
 
 
 def _indices_hors_reference(reseau: Reseau) -> np.ndarray:
-    """Indices des nœuds autres que celui de référence."""
+    """Renvoie les indices de tous les nœuds sauf le nœud de référence."""
     return np.array([i for i in range(reseau.n_noeuds) if i != reseau.reference])

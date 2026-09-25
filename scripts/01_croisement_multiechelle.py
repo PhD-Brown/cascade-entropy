@@ -1,4 +1,5 @@
-"""Reproduction du croisement multiéchelle de Costa et al.
+"""
+Reproduction du croisement multiéchelle de Costa et al.
 
 Compare l'entropie multiéchelle d'un bruit non corrélé et d'un bruit corrélé à
 longue portée. À l'échelle 1, le bruit non corrélé obtient la valeur la plus

@@ -1,4 +1,5 @@
-"""Dispatch de la production sous contraintes.
+"""
+Dispatch de la production sous contraintes.
 
 Deuxième module du fil A. Étant donné une demande, il décide quel générateur
 produit combien et quelle charge est servie, en respectant les capacités de
@@ -46,11 +47,13 @@ SEUIL_SATURATION = 0.99
 
 @dataclass
 class Solution:
-    """Résultat d'un dispatch.
+    """
+    Représente la solution optimiser d'un dispatch.
 
-    `injections` couvre tous les nœuds, positif en production et négatif en
-    consommation ; c'est la grandeur que le module `reseau` attend. `delestage`
-    est la part de la demande qui n'a pas pu être servie, charge par charge.
+    On garde à la fois les grandeurs physiques du réseau (flux, injections,
+    charge servie) et les grandeurs utiles pour la cascade (délestage, taux de
+    charge). C'est la structure de sortie qui sera réutilisée ensuite dans les
+    modules de contrôle et d'analyse.
     """
 
     injections: np.ndarray
@@ -63,6 +66,7 @@ class Solution:
 
     @property
     def delestage_total(self) -> float:
+        """Somme du délestage sur toutes les charges."""
         return float(self.delestage.sum())
 
     @property
@@ -72,7 +76,8 @@ class Solution:
 
     @property
     def lignes_saturees(self) -> np.ndarray:
-        """Indices des lignes à moins de 1 % de leur limite.
+        """
+        Indices des lignes à moins de 1 % de leur limite.
 
         Ce sont elles, et elles seules, qui peuvent tomber lors d'une cascade.
         """
@@ -80,11 +85,17 @@ class Solution:
 
 
 def _matrices(reseau: Reseau, A: np.ndarray | None):
-    """Construit la correspondance entre variables de décision et flux.
+    """
+    Construit la correspondance entre variables de décision et flux.
 
-    Les variables sont rangées dans l'ordre [production, charge servie]. La
-    matrice de sélection convertit ce vecteur en injections par nœud : identité
-    aux nœuds générateurs, opposé aux nœuds de charge.
+    Les variables de décision sont rangées dans l'ordre :
+    1. production de chaque générateur,
+    2. puissance servie à chaque charge.
+
+    La matrice `selection` transforme ce vecteur de décision en injections du
+    réseau : production positive sur les nœuds générateurs, consommation négative
+    sur les nœuds de charge. Ensuite, on applique la matrice de flux pour obtenir
+    les flux sur les lignes.
     """
     if A is None:
         A = matrice_de_flux(reseau)
@@ -95,6 +106,7 @@ def _matrices(reseau: Reseau, A: np.ndarray | None):
     selection[reseau.charges, n_g + np.arange(n_c)] = -1.0
 
     autres = np.array([i for i in range(reseau.n_noeuds) if i != reseau.reference])
+    # On applique A aux injections hors référence pour obtenir les flux de ligne.
     return A, selection, A @ selection[autres], n_g, n_c
 
 
@@ -106,16 +118,19 @@ def resoudre(
     poids_delestage: float = POIDS_DELESTAGE,
     A: np.ndarray | None = None,
 ) -> Solution:
-    """Résout le dispatch pour une demande donnée.
+    """
+    Résout le dispatch pour une demande donnée.
 
-    `demande` est positive et définie sur les nœuds de charge uniquement, dans
-    l'ordre de `reseau.charges`. `limites` et `puissance_max` remplacent au besoin
-    celles du réseau, ce qui permet de rejouer un dispatch après avarie sans
-    reconstruire le réseau. Passer `A` évite de reconstruire la matrice de flux.
+    La logique générale est la suivante :
+    - on choisit la production à chaque générateur,
+    - on choisit la puissance effectivement servie à chaque charge,
+    - on impose que la production totale soit égale à la charge totale servie,
+    - on impose que chaque flux respecte sa limite de transport,
+    - on minimise le coût économique de l'opération, avec un lourd pénalisation
+      du délestage pour servir le plus possible.
 
-    Lève une erreur si le solveur échoue : un problème infaisable signale une
-    incohérence du modèle, jamais un état physique valide, puisque tout délester
-    est toujours une solution admissible.
+    L'algorithme est un programme linéaire, ce qui est parfaitement adapté ici
+    puisque les contraintes sont affines et la fonction objectif est linéaire.
     """
     demande = np.asarray(demande, dtype=float)
     if demande.shape != reseau.charges.shape:
@@ -123,6 +138,7 @@ def resoudre(
     if np.any(demande < 0):
         raise ValueError("La demande doit être positive.")
 
+    # Si aucune limite n'est fournie, on prend celle du réseau par défaut.
     limites = reseau.limites if limites is None else np.asarray(limites, dtype=float)
     if limites is None:
         raise ValueError("Aucune limite de ligne définie.")
@@ -132,17 +148,21 @@ def resoudre(
 
     A, selection, flux_par_variable, n_g, n_c = _matrices(reseau, A)
 
-    # Coût : produire coûte 1, servir rapporte W.
+    # Coût : produire coûte 1, servir la demande rapporte W, donc le solveur préfère
+    # servir autant que possible et ne délester que le strict nécessaire.
     cout = np.concatenate([np.ones(n_g), -poids_delestage * np.ones(n_c)])
 
-    # Transport : le flux reste entre -F_max et +F_max, soit deux inégalités.
+    # Les contraintes de transport se traduisent par des bornes sur les flux :
+    # -F_max <= F <= F_max, soit deux inégalités de la forme A x <= b.
     A_ub = np.vstack([flux_par_variable, -flux_par_variable])
     b_ub = np.concatenate([limites, limites])
 
-    # Équilibre global : tout ce qui est produit est servi.
+    # Équilibre global : la puissance produite doit compenser exactement la charge servie.
     A_eq = np.concatenate([np.ones(n_g), -np.ones(n_c)])[None, :]
     b_eq = np.zeros(1)
 
+    # Chaque variable de décision est bornée par 0 et par sa limite physique :
+    # production <= puissance_max, charge_servie <= demande.
     bornes = [(0.0, p) for p in puissance_max] + [(0.0, d) for d in demande]
 
     resultat = linprog(cout, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq, b_eq=b_eq,
@@ -153,10 +173,12 @@ def resoudre(
     production = resultat.x[:n_g]
     charge_servie = resultat.x[n_g:]
 
+    # On reconstruit les injections au format attendu par le module réseau.
     injections = np.zeros(reseau.n_noeuds)
     injections[reseau.generateurs] = production
     injections[reseau.charges] = -charge_servie
 
+    # Le flux est simplement la matrice de transfert appliquée au vecteur de décision.
     flux = flux_par_variable @ resultat.x
 
     return Solution(
@@ -172,15 +194,19 @@ def resoudre(
 
 def demande_uniforme(reseau: Reseau, total: float,
                      poids: np.ndarray | None = None) -> np.ndarray:
-    """Répartit une demande totale entre les nœuds de charge.
+    """
+    Répartit une demande totale entre les nœuds de charge.
 
-    Sans `poids`, la répartition est égale. Avec, elle est proportionnelle, ce
-    qui permet de garder un profil de charge fixe tout en faisant varier le
-    niveau global — l'expérience de balayage du modèle de référence.
+    Cette aide est utilisée pour créer des scénarios de balayage de charge : on
+    garde le même profil de demande, mais on ajuste le niveau global. On obtient
+    ainsi une famille de demandes uniformes, faciles à comparer entre elles.
     """
     if poids is None:
+        # Cas le plus simple : chaque charge reçoit la même quantité.
         poids = np.ones(reseau.charges.size)
     poids = np.asarray(poids, dtype=float)
     if np.any(poids < 0) or poids.sum() == 0:
         raise ValueError("Les poids doivent être positifs et de somme non nulle.")
+    # La demande est d'abord distribuée selon les poids, puis normalisée pour
+    # faire exactement le total voulu.
     return total * poids / poids.sum()

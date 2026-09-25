@@ -1,4 +1,5 @@
-"""Analyse entropique des pannes en cascade dans les réseaux de transport.
+"""
+Analyse entropique des pannes en cascade dans les réseaux de transport.
 
 Le paquet est organisé en deux fils indépendants.
 

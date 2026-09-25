@@ -51,7 +51,11 @@ def arbre_calibre():
 
 
 def test_chaine_resolue_a_la_main():
-    """Deux charges d'une unité : la première ligne porte 2, la seconde 1."""
+    """
+    Vérifie la résolution manuelle d'un réseau simple en chaîne.
+    Avec deux charges de 1 unité et une seule source, le flux attendu est 2 sur la
+    première ligne et 1 sur la seconde, sans délestage ni saturation.
+    """
     solution = resoudre(chaine(), demande=np.array([1.0, 1.0]),
                         puissance_max=np.array([10.0]))
     assert np.allclose(solution.flux, [2.0, 1.0])
@@ -60,7 +64,11 @@ def test_chaine_resolue_a_la_main():
 
 
 def test_limite_de_ligne_force_le_delestage():
-    """La ligne amont plafonnée à 1,5 impose de couper 0,5 en aval."""
+    """
+    Vérifie qu'une limite de ligne imposée sur le tronçon amont force un délestage
+    en aval. On s'attend à ce que la ligne saturée porte exactement la limite et que
+    le délestage total compense le surplus.
+    """
     solution = resoudre(chaine(limites=(1.5, 10.0)), demande=np.array([1.0, 1.0]),
                         puissance_max=np.array([10.0]))
     assert solution.flux[0] == pytest.approx(1.5)
@@ -70,6 +78,11 @@ def test_limite_de_ligne_force_le_delestage():
 
 
 def test_capacite_de_production_insuffisante():
+    """
+    Vérifie le cas où la production disponible est trop faible pour couvrir la demande.
+    Le délestage total correspond alors à l'écart entre la demande totale et la capacité
+    de production disponible.
+    """
     solution = resoudre(chaine(), demande=np.array([1.0, 1.0]),
                         puissance_max=np.array([1.2]))
     assert solution.delestage_total == pytest.approx(0.8)
@@ -83,6 +96,10 @@ def test_capacite_de_production_insuffisante():
 
 @pytest.mark.parametrize("ratio", [0.3, 0.9, 1.2, 1.6])
 def test_injections_equilibrees(ratio):
+    """
+    Vérifie le principe d'équilibre du réseau : la somme des injections est nulle,
+    ce qui traduit le fait que la production et la consommation se compensent.
+    """
     reseau, A, limites, p_max, p_c = arbre_calibre()
     solution = resoudre(reseau, demande_uniforme(reseau, ratio * p_c),
                         limites=limites, puissance_max=p_max, A=A)
@@ -91,10 +108,10 @@ def test_injections_equilibrees(ratio):
 
 @pytest.mark.parametrize("ratio", [0.3, 0.9, 1.2, 1.6])
 def test_limites_de_transport_jamais_depassees(ratio):
-    """Le dispatch ne produit jamais de ligne au-dessus de sa limite.
-
-    C'est la propriété qui définit la surcharge dans le modèle de cascade : une
-    ligne ne peut qu'être saturée, jamais en dépassement.
+    """
+    Vérifie que la solution respecte toujours les limites de transport des lignes.
+    Une ligne ne peut pas dépasser sa capacité : elle est au pire saturée, jamais
+    en surcharge dépassant la borne physique.
     """
     reseau, A, limites, p_max, p_c = arbre_calibre()
     solution = resoudre(reseau, demande_uniforme(reseau, ratio * p_c),
@@ -104,6 +121,10 @@ def test_limites_de_transport_jamais_depassees(ratio):
 
 @pytest.mark.parametrize("ratio", [0.3, 0.9, 1.2, 1.6])
 def test_charge_servie_jamais_superieure_a_la_demande(ratio):
+    """
+    Vérifie les bornes physiques de la demande servie : la charge livrée ne peut pas
+    dépasser la demande totale, et le délestage reste toujours positif ou nul.
+    """
     reseau, A, limites, p_max, p_c = arbre_calibre()
     demande = demande_uniforme(reseau, ratio * p_c)
     solution = resoudre(reseau, demande, limites=limites, puissance_max=p_max, A=A)
@@ -118,7 +139,11 @@ def test_charge_servie_jamais_superieure_a_la_demande(ratio):
 
 @pytest.mark.parametrize("ratio", [0.3, 0.6, 0.9, 1.0])
 def test_aucun_delestage_sous_la_capacite(ratio):
-    """Critère du plan : à faible charge, aucun délestage."""
+    """
+    Vérifie le critère du plan de travail : à faible charge, le système doit servir
+    toute la demande sans délestage, tant que la production et les limites de transport
+    restent suffisantes.
+    """
     reseau, A, limites, p_max, p_c = arbre_calibre()
     solution = resoudre(reseau, demande_uniforme(reseau, ratio * p_c),
                         limites=limites, puissance_max=p_max, A=A)
@@ -127,7 +152,11 @@ def test_aucun_delestage_sous_la_capacite(ratio):
 
 @pytest.mark.parametrize("ratio", [1.1, 1.3, 1.6, 2.0])
 def test_delestage_exact_au_dela_de_la_capacite(ratio):
-    """Au-delà de la capacité totale, tout l'excédent de demande est coupé."""
+    """
+    Vérifie que, au-delà de la capacité totale, le délestage représente exactement
+    la fraction excédentaire de la demande. L'ensemble de la puissance disponible est
+    servi et le reste est coupé.
+    """
     reseau, A, limites, p_max, p_c = arbre_calibre()
     solution = resoudre(reseau, demande_uniforme(reseau, ratio * p_c),
                         limites=limites, puissance_max=p_max, A=A)
@@ -136,7 +165,10 @@ def test_delestage_exact_au_dela_de_la_capacite(ratio):
 
 
 def test_puissance_servie_plafonne_a_la_capacite():
-    """Le plateau de puissance servie est la signature de la première transition."""
+    """
+    Vérifie la première transition du système : au-delà d'un certain seuil, la puissance
+    servie se stabilise à la capacité de production, ce qui marque le plafonnement.
+    """
     reseau, A, limites, p_max, p_c = arbre_calibre()
     servies = [
         resoudre(reseau, demande_uniforme(reseau, r * p_c), limites=limites,
@@ -147,11 +179,10 @@ def test_puissance_servie_plafonne_a_la_capacite():
 
 
 def test_taux_maximal_continue_de_croitre_apres_la_premiere_transition():
-    """La seconde transition existe malgré une puissance servie constante.
-
-    Au-delà de la limite de production, le total servi ne bouge plus, mais le
-    délestage n'est pas uniforme : la répartition change et certaines lignes se
-    chargent davantage. C'est le mécanisme qui produit la seconde transition.
+    """
+    Vérifie la seconde transition du système : même si la puissance servie plafonne,
+    le taux maximal de charge continue d'augmenter, ce qui montre que le réseau se
+    charge davantage en redistribution malgré un total servi constant.
     """
     reseau, A, limites, p_max, p_c = arbre_calibre()
     taux = [
@@ -168,6 +199,10 @@ def test_taux_maximal_continue_de_croitre_apres_la_premiere_transition():
 
 
 def test_reproductible():
+    """
+    Vérifie la reproductibilité du solveur sur une même instance et une même demande.
+    Deux exécutions identiques doivent conduire aux mêmes flux et au même résultat.
+    """
     reseau, A, limites, p_max, p_c = arbre_calibre()
     demande = demande_uniforme(reseau, 1.2 * p_c)
     a = resoudre(reseau, demande, limites=limites, puissance_max=p_max, A=A)
@@ -176,16 +211,28 @@ def test_reproductible():
 
 
 def test_demande_negative_rejetee():
+    """
+    Vérifie que la fonction rejette une demande négative, car une consommation négative
+    n'a pas de sens physique dans ce modèle de réseau électrique.
+    """
     with pytest.raises(ValueError):
         resoudre(chaine(), demande=np.array([-1.0, 1.0]), puissance_max=np.array([10.0]))
 
 
 def test_demande_de_mauvaise_dimension_rejetee():
+    """
+    Vérifie que les demandes de mauvaise taille sont rejetées. La dimension doit matcher
+    le nombre de charges du réseau pour que le calcul soit bien posé.
+    """
     with pytest.raises(ValueError):
         resoudre(chaine(), demande=np.array([1.0]), puissance_max=np.array([10.0]))
 
 
 def test_demande_uniforme_somme_au_total():
+    """
+    Vérifie que la demande uniforme répartie sur les charges a bien une somme totale égale
+    à la valeur demandée, et qu'elle a la bonne dimension.
+    """
     reseau = arbre(4)
     demande = demande_uniforme(reseau, 100.0)
     assert demande.sum() == pytest.approx(100.0)
