@@ -92,7 +92,8 @@ def arbre(
     niveau_generateurs: int | None = None,
     reactance: float = 1.0,
 ) -> Reseau:
-    """Construit un arbre hiérarchique avec un niveau de générateurs fixé.
+    """
+    Construit un arbre hiérarchique avec un niveau de générateurs fixé.
 
     La logique est simple : on part de la racine, puis on crée des descendants
     successifs. Chaque génération ajoute de nouveaux nœuds, de sorte qu'un arbre
@@ -143,6 +144,7 @@ def arbre(
         generateurs=generateurs,
         charges=charges,
         niveaux=niveaux,
+        # fixe le premier générateur comme nœud de référence
         reference=int(generateurs[0]),
     )
 
@@ -174,7 +176,7 @@ def est_connexe(reseau: Reseau) -> bool:
     """
     Vérifie qu'un graphe est entièrement connecté.
 
-    On part du nœud de référence, puis on explose le graphe en largeur via une pile
+    On part du nœud de référence, puis on explose le graphe en profondeur via une pile
     de parcours. Si on visite tous les nœuds, le réseau est connexe ; sinon, il
     comporte au moins une composante isolée.
     """
@@ -195,7 +197,11 @@ def est_connexe(reseau: Reseau) -> bool:
 
 
 def degres(reseau: Reseau) -> np.ndarray:
-    """Compte le nombre de lignes incidentes à chaque nœud."""
+    """
+    Compte le nombre de lignes incidentes à chaque nœud.
+    Carreras vise une moyenne de 3 lignes par nœud, 
+    (proche de la réalité des grands réseaux).
+    """
     return np.bincount(reseau.lignes.ravel(), minlength=reseau.n_noeuds)
 
 
