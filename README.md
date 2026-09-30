@@ -31,7 +31,7 @@ sur signaux synthétiques, un calcul de flux DC et un dispatch sous contraintes.
 | Contrôle par mélange de l'ordre temporel | Implémenté, avec export des résultats |
 | Topologie et flux électriques DC | Implémentés |
 | Dispatch de production et de charge servie | Implémenté par programmation linéaire |
-| Cascade sur une journée | À implémenter : `cascade.journee()` lève `NotImplementedError` |
+| Cascade sur une journée | Implémentée : `cascade.journee()`, avec tests ; la dégénérescence du dispatch n'y est pas traitée |
 | Évolution sur plusieurs jours et export des séries électriques | À implémenter : fonctions de `evolution.py` levant `NotImplementedError` |
 
 Le dispatch minimise le coût
@@ -62,7 +62,7 @@ temporelles utilisent des signaux synthétiques.
 |---|---|
 | `reseau.py` | Construire la topologie, les matrices électriques et les limites ; calculer les angles et flux DC pour des injections imposées |
 | `dispatch.py` | À partir de la demande et des capacités, déterminer production, charge servie, délestage, injections, flux et taux de charge |
-| `cascade.py` | Prévu : enchaîner avaries et nouveaux dispatchs sur une journée |
+| `cascade.py` | Tirer la demande du jour, les avaries accidentelles (p0) et par surcharge (p1), puis enchaîner les dispatchs jusqu'à convergence |
 | `evolution.py` | Prévu : faire évoluer le réseau sur plusieurs jours et enregistrer les séries |
 
 Les injections sont positives en production et négatives en consommation.
