@@ -237,3 +237,46 @@ def test_generateur_aleatoire_obligatoire():
     with pytest.raises(TypeError):
         journee(chaine(), np.array([1.0, 1.0]), np.array([10.0]), 0.0, 0.0, 0.0,
                 rng=GRAINE)
+
+
+# --------------------------------------------------------------------------
+# Premier dispatch, conservé pour l'observation avant cascade
+# --------------------------------------------------------------------------
+
+
+def test_solution_initiale_est_le_dispatch_avant_toute_avarie_par_surcharge():
+    """
+    Sur la chaîne, le premier dispatch délestait 0,5 avec la ligne 0 à sa limite ;
+    après la chute de cette ligne, le délestage final vaut 2. La solution initiale
+    doit garder le premier état, et M_max initial doit être celui de ce dispatch.
+    """
+    resultat = journee(chaine(), np.array([1.0, 1.0]), np.array([10.0]),
+                       p0=0.0, p1=1.0, g=0.0, rng=np.random.default_rng(GRAINE))
+    assert resultat.solution_initiale.delestage_total == pytest.approx(0.5)
+    assert resultat.solution_initiale is not resultat.solution
+    assert resultat.taux_maximal_initial == pytest.approx(1.0)
+    assert not resultat.hors_service_initial.any()
+
+
+def test_solution_initiale_sans_avarie_est_la_solution_finale():
+    """Sans avarie, le premier et le dernier dispatch sont un seul et même objet."""
+    reseau, limites, p_max, p_c = arbre_calibre()
+    resultat = journee(reseau, demande_uniforme(reseau, 0.8 * p_c), p_max, 0.0, 0.0, 0.3,
+                       np.random.default_rng(GRAINE), limites=limites)
+    assert resultat.solution_initiale is resultat.solution
+
+
+def test_hors_service_initial_ne_contient_que_les_avaries_accidentelles():
+    """
+    Avec p0 = 1, toutes les lignes sont mortes dès le premier dispatch ; avec p1 = 1 et
+    p0 = 0, la ligne qui tombe ensuite par surcharge n'y figure pas encore.
+    """
+    tout = journee(chaine(), np.array([1.0, 1.0]), np.array([10.0]), 1.0, 0.0, 0.0,
+                   np.random.default_rng(GRAINE))
+    assert tout.hors_service_initial.tolist() == [True, True]
+    assert tout.taux_maximal_initial == 0.0
+
+    cascade = journee(chaine(), np.array([1.0, 1.0]), np.array([10.0]), 0.0, 1.0, 0.0,
+                      np.random.default_rng(GRAINE))
+    assert cascade.hors_service.tolist() == [True, False]
+    assert cascade.hors_service_initial.tolist() == [False, False]

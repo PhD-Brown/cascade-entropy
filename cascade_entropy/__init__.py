@@ -14,7 +14,9 @@ Fil B, outils d'analyse :
     entropie        une série donne une mesure informationnelle
     indicateurs     une série donne un indicateur de référence
 
-Les deux fils ne communiquent que par les séries temporelles écrites sur disque.
+Les deux fils communiquent par les séries temporelles écrites sur disque. Seule
+exception : `evolution` importe `entropie.nombre_effectif` pour calculer l'une de
+ses observables, dans le sens fil A vers fil B uniquement.
 Aucun module du fil B n'importe un module du fil A.
 """
 

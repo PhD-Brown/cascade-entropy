@@ -329,6 +329,26 @@ def limites_depuis_cas_de_base(
     return np.maximum(marge * reference, plancher * reference.max())
 
 
+def capacite_incidente(reseau: Reseau, limites: np.ndarray, noeud: int) -> float:
+    """
+    Somme des limites de transport des lignes incidentes à un nœud.
+
+    C'est la puissance maximale que le réseau peut faire entrer ou sortir d'un
+    nœud : un générateur ne peut pas être amélioré au-delà de ce que ses lignes
+    savent évacuer (condition (b) de Carreras et al., 2004). Les limites sont
+    passées explicitement, car elles évoluent au fil des jours alors que la
+    topologie reste fixe.
+    """
+    limites = np.asarray(limites, dtype=float)
+    if limites.shape != (reseau.n_lignes,):
+        raise ValueError("Une limite par ligne est requise.")
+    if not 0 <= noeud < reseau.n_noeuds:
+        raise ValueError("Nœud hors du réseau.")
+    # Une ligne est incidente au nœud si celui-ci est l'une de ses deux extrémités.
+    incidentes = (reseau.lignes == noeud).any(axis=1)
+    return float(limites[incidentes].sum())
+
+
 def _indices_hors_reference(reseau: Reseau) -> np.ndarray:
     """Renvoie les indices de tous les nœuds sauf le nœud de référence."""
     return np.array([i for i in range(reseau.n_noeuds) if i != reseau.reference])
