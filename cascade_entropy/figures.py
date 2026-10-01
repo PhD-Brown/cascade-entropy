@@ -327,3 +327,52 @@ def transitions(ratios, courbes: dict[str, np.ndarray], seuils: dict[str, float]
         ax.set_title(titre)
     fig.tight_layout()
     return fig
+
+
+def distributions_comparees(series: dict[str, np.ndarray], xlabel: str, titre: str = "",
+                            bins: int = 40):
+    """
+    Superpose les histogrammes de deux (ou plusieurs) séries.
+
+    Sert à comparer des distributions entières plutôt qu'une seule valeur
+    résumée (moyenne, max) : utile par exemple pour voir si deux modes de
+    simulation produisent la même forme de distribution sur une observable, ou
+    si l'un d'eux concentre beaucoup plus de masse à une valeur particulière
+    (comme une forte proportion de jours sans délestage).
+    """
+    fig, ax = plt.subplots()
+    for (nom, valeurs), couleur in zip(series.items(), CYCLE):
+        ax.hist(valeurs, bins=bins, alpha=0.55, color=couleur, label=nom,
+                density=True)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel("densité")
+    ax.legend()
+    if titre:
+        ax.set_title(titre)
+    fig.tight_layout()
+    return fig
+
+
+def courbes_parametriques(x, courbes: dict[str, np.ndarray], xlabel: str, ylabel: str,
+                          titre: str = "", erreurs: dict[str, np.ndarray] | None = None):
+    """
+    Trace une mesure en fonction d'un paramètre de calcul balayé (délai,
+    dimension d'immersion, etc.), plutôt que de l'échelle de granularisation.
+
+    Généralise `courbes_multiechelle` à un axe horizontal arbitraire : utile
+    pour vérifier si un résultat dépend fortement du choix d'un paramètre, par
+    exemple le délai d'une entropie de permutation.
+    """
+    fig, ax = plt.subplots()
+    marqueurs = ["o", "s", "^", "D"]
+    for (nom, valeurs), marqueur, couleur in zip(courbes.items(), marqueurs, CYCLE):
+        erreur = None if erreurs is None else erreurs.get(nom)
+        ax.errorbar(x, valeurs, yerr=erreur, marker=marqueur, capsize=2.5,
+                    color=couleur, label=nom)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.legend()
+    if titre:
+        ax.set_title(titre)
+    fig.tight_layout()
+    return fig
