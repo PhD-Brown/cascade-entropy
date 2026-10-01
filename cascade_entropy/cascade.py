@@ -92,13 +92,17 @@ class Journee:
     Résultat d'une journée simulée.
 
     On garde la demande tirée, la séquence des avaries (accidentelles puis
-    vague par vague) et la dernière solution du dispatch. Cette dernière décrit
-    l'état du réseau à la fin de la cascade : son délestage total est la taille
-    du blackout du jour.
+    vague par vague) et deux solutions du dispatch. La dernière décrit l'état du
+    réseau à la fin de la cascade : son délestage total est la taille du blackout
+    du jour. La première est celle du tout premier dispatch, avant toute avarie
+    par surcharge : c'est l'état que le réseau présentait avant que la cascade
+    ne le déforme, et donc la bonne base pour observer la répartition des flux
+    sans la confondre avec le blackout lui-même.
     """
 
     demande: np.ndarray
     solution: Solution
+    solution_initiale: Solution
     hors_service: np.ndarray
     avaries_accidentelles: np.ndarray
     avaries_par_surcharge: list[np.ndarray]
@@ -115,14 +119,27 @@ class Journee:
         return np.concatenate([self.avaries_accidentelles, *self.avaries_par_surcharge])
 
     @property
+    def hors_service_initial(self) -> np.ndarray:
+        """Masque des lignes hors service lors du premier dispatch (avaries p0 seules)."""
+        masque = np.zeros(self.hors_service.size, dtype=bool)
+        masque[self.avaries_accidentelles] = True
+        return masque
+
+    @property
     def taux_maximal(self) -> float:
         """
-        M_max sur les seules lignes en service.
+        M_max sur les seules lignes en service, à la fin de la cascade.
 
         `Solution.taux_maximal` inclurait les lignes mortes, dont le taux de
         charge (rapport de deux quantités quasi nulles) n'a aucun sens.
         """
         taux = self.solution.taux_de_charge[~self.hors_service]
+        return float(taux.max()) if taux.size else 0.0
+
+    @property
+    def taux_maximal_initial(self) -> float:
+        """M_max du premier dispatch, sur les lignes encore en service à ce moment."""
+        taux = self.solution_initiale.taux_de_charge[~self.hors_service_initial]
         return float(taux.max()) if taux.size else 0.0
 
 
@@ -207,8 +224,9 @@ def journee(
     hors_service = rng.random(reseau.n_lignes) < p0
     avaries_accidentelles = np.flatnonzero(hors_service)
 
-    # 3. Premier dispatch.
+    # 3. Premier dispatch, conservé tel quel pour l'observation avant cascade.
     solution = _redispatch(reseau, demande, limites, puissance_max, hors_service)
+    solution_initiale = solution
     n_iterations = 1
 
     # 4. Cascade. Les candidates sont les lignes saturées ET en service : une
@@ -229,6 +247,7 @@ def journee(
     return Journee(
         demande=demande,
         solution=solution,
+        solution_initiale=solution_initiale,
         hors_service=hors_service,
         avaries_accidentelles=avaries_accidentelles,
         avaries_par_surcharge=avaries_par_surcharge,

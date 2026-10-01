@@ -19,6 +19,7 @@ import pytest
 from cascade_entropy.reseau import (
     Reseau,
     arbre,
+    capacite_incidente,
     degres,
     est_connexe,
     flux,
@@ -241,3 +242,39 @@ def test_cas_de_base_sans_ligne_saturee():
     taux = taux_de_charge(flux(reseau, injections), limites)
     assert taux.max() < 1.0
     assert np.isclose(taux[np.argmax(np.abs(flux(reseau, injections)))], 1 / 1.5)
+
+
+def test_capacite_incidente_chaine_a_la_main():
+    """
+    Vérifie la somme des limites incidentes sur la chaîne 0 - 1 - 2 : le nœud 0
+    n'est relié qu'à la ligne 0, le nœud 1 aux lignes 0 et 1, le nœud 2 à la ligne 1.
+    """
+    reseau = chaine_trois_noeuds()
+    limites = np.array([3.0, 5.0])
+    assert capacite_incidente(reseau, limites, 0) == 3.0
+    assert capacite_incidente(reseau, limites, 1) == 8.0
+    assert capacite_incidente(reseau, limites, 2) == 5.0
+
+
+def test_capacite_incidente_arbre_coherente_avec_les_degres():
+    """
+    Vérifie, avec des limites toutes égales à 1, que la capacité incidente d'un nœud
+    vaut son degré, et que chaque ligne est comptée exactement deux fois au total.
+    """
+    reseau = arbre(4)
+    limites = np.ones(reseau.n_lignes)
+    capacites = np.array([capacite_incidente(reseau, limites, i)
+                          for i in range(reseau.n_noeuds)])
+    assert np.array_equal(capacites, degres(reseau))
+    assert capacites.sum() == 2 * reseau.n_lignes
+
+
+def test_capacite_incidente_entrees_invalides_rejetees():
+    """Vérifie le rejet d'un nœud hors du réseau et de limites mal dimensionnées."""
+    reseau = chaine_trois_noeuds()
+    with pytest.raises(ValueError):
+        capacite_incidente(reseau, np.array([1.0, 1.0]), 3)
+    with pytest.raises(ValueError):
+        capacite_incidente(reseau, np.array([1.0, 1.0]), -1)
+    with pytest.raises(ValueError):
+        capacite_incidente(reseau, np.array([1.0]), 0)

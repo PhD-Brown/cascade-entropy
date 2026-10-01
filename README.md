@@ -32,7 +32,7 @@ sur signaux synthétiques, un calcul de flux DC et un dispatch sous contraintes.
 | Topologie et flux électriques DC | Implémentés |
 | Dispatch de production et de charge servie | Implémenté par programmation linéaire |
 | Cascade sur une journée | Implémentée : `cascade.journee()`, avec tests ; la dégénérescence du dispatch n'y est pas traitée |
-| Évolution sur plusieurs jours et export des séries électriques | À implémenter : fonctions de `evolution.py` levant `NotImplementedError` |
+| Évolution sur plusieurs jours et export des séries électriques | Implémentée : `evolution.simuler()` (modes `independant` et `auto_organise`) et export `.npz`, avec tests ; démonstration du mécanisme sur quelques milliers de jours, pas reproduction statistique complète |
 
 Le dispatch minimise le coût
 `C = somme(production) - W × somme(charge_servie)`, avec `W = 100` par défaut.
@@ -63,7 +63,7 @@ temporelles utilisent des signaux synthétiques.
 | `reseau.py` | Construire la topologie, les matrices électriques et les limites ; calculer les angles et flux DC pour des injections imposées |
 | `dispatch.py` | À partir de la demande et des capacités, déterminer production, charge servie, délestage, injections, flux et taux de charge |
 | `cascade.py` | Tirer la demande du jour, les avaries accidentelles (p0) et par surcharge (p1), puis enchaîner les dispatchs jusqu'à convergence |
-| `evolution.py` | Prévu : faire évoluer le réseau sur plusieurs jours et enregistrer les séries |
+| `evolution.py` | Faire évoluer le réseau sur plusieurs jours (échantillon i.i.d. ou dynamique auto-organisée), produire une entrée par jour et enregistrer les séries |
 
 Les injections sont positives en production et négatives en consommation.
 Le dispatch manipule une demande et une charge servie positives, puis les
@@ -180,12 +180,13 @@ Les contrôles et objectifs scientifiques sont distincts :
 - **Hurst :** comparer l'estimation R/S à un témoin simulé de même longueur.
   La distribution nulle actuelle utilise un bruit gaussien non corrélé ; elle
   ne constitue pas un témoin universel pour toutes les séries.
-- **Cascade, à implémenter :** vérifier notamment l'absence d'avaries lorsque
-  leur probabilité est nulle et la reproductibilité à graine fixée.
-- **Évolution, à implémenter :** rechercher, dans les conditions du modèle de
-  référence, un plateau du taux de charge moyen et une éventuelle queue en loi
-  de puissance des tailles de blackout. Ce sont des objectifs de reproduction,
-  pas des comportements garantis ni des résultats déjà obtenus.
+- **Cascade, implémentée et testée :** l'absence d'avaries lorsque leur
+  probabilité est nulle et la reproductibilité à graine fixée sont vérifiées.
+- **Évolution, mécanisme implémenté, objectifs à examiner :** rechercher, dans
+  les conditions du modèle de référence, un plateau du taux de charge moyen et
+  une éventuelle queue en loi de puissance des tailles de blackout. Ce sont des
+  objectifs de reproduction, pas des comportements garantis ni des résultats
+  déjà obtenus.
 
 Ajuster un exposant ne suffit pas à démontrer une loi de puissance. De même, une
 différence d'entropie ou de nombre effectif ne démontre pas, à elle seule, une
