@@ -222,7 +222,6 @@ __marimo__/
 
 # Sorties de simulation et figures : régénérables, non versionnées
 data/
-figures/
 *.npz
 
 # Aucune donnée externe ne doit entrer dans le dépôt

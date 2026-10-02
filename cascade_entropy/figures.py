@@ -9,8 +9,12 @@ une cellule.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import numpy as np
+
+from .chemins import DOSSIER_FIGURES
 
 # Palette : deux teintes contrastées pour les comparaisons à deux séries, plus
 # des neutres pour les repères et les annotations.
@@ -376,3 +380,25 @@ def courbes_parametriques(x, courbes: dict[str, np.ndarray], xlabel: str, ylabel
         ax.set_title(titre)
     fig.tight_layout()
     return fig
+
+def sauvegarder(fig, nom: str, sous_dossier: str | None = None) -> Path:
+    """
+    Enregistre une figure dans `figures/`, en PNG et en PDF.
+
+    Le PNG sert à l'aperçu rapide (dans le carnet, sur GitHub) ; le PDF,
+    vectoriel, est celui à inclure dans le rapport LaTeX --- jamais un PNG
+    dans un document destiné à l'impression, la perte de résolution se voit
+    toujours à l'agrandissement. `sous_dossier` range la figure dans
+    `figures/<sous_dossier>/`, utile pour grouper par carnet (par exemple
+    "03_evolution") plutôt que de tout mélanger à plat.
+
+    Les dimensions et la résolution viennent des réglages de
+    `appliquer_style()` (`savefig.dpi`, `savefig.bbox`) : aucun paramètre
+    supplémentaire n'est à fournir ici.
+    """
+    dossier = DOSSIER_FIGURES if sous_dossier is None else DOSSIER_FIGURES / sous_dossier
+    dossier.mkdir(parents=True, exist_ok=True)
+    chemin_png = dossier / f"{nom}.png"
+    fig.savefig(chemin_png)
+    fig.savefig(dossier / f"{nom}.pdf")
+    return chemin_png
