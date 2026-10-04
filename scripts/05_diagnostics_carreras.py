@@ -398,10 +398,33 @@ def _save_npz(path: Path, cfg, ratios, rows, arrays) -> None:
     np.savez_compressed(path, **payload)
 
 
-def figure_M_lignes(ratios, arrays, cible: float, numero: int, titre: str) -> None:
+def figure_M_lignes(
+    ratios,
+    arrays,
+    cible: float,
+    numero: int,
+    titre: str,
+    *,
+    etat: str,
+) -> None:
+    """
+    Trace M_ij ligne par ligne au ratio le plus proche de `cible`.
+
+    etat="initial" : premier dispatch, avant toute avarie (Fig. 3, 6, 7) ;
+    etat="final"   : état après la cascade, lignes hors service à 0 (Fig. 8).
+    Le choix est explicite pour ne jamais comparer à Carreras un réseau déjà
+    modifié par la cascade lorsque la figure décrit l'état avant panne.
+    """
+    if etat == "initial":
+        cle = "M_initial"
+    elif etat == "final":
+        cle = "M_final_carreras"
+    else:
+        raise ValueError("etat doit être 'initial' ou 'final'.")
+
     idx = _index_ratio(ratios, cible)
     ratio = float(ratios[idx])
-    m = arrays["M_final_carreras"][idx]
+    m = arrays[cle][idx]
 
     fig, ax = plt.subplots(figsize=(7.4, 4.4))
     ax.plot(np.arange(m.size), m, linewidth=1.0)
@@ -409,14 +432,19 @@ def figure_M_lignes(ratios, arrays, cible: float, numero: int, titre: str) -> No
     ax.set_ylim(-0.03, 1.08)
     ax.set_xlabel("numéro de ligne")
     ax.set_ylabel(r"$M_{ij}=|F_{ij}|/F_{ij}^{\max}$")
-    ax.set_title(f"{titre} — $P_D/P_C={ratio:.3f}$")
+    ax.set_title(f"{titre} — $P_D/P_C={ratio:.3f}$ ({etat})")
     ax.grid(alpha=0.2)
     fig.tight_layout()
-    _sauvegarder(fig, f"05_carreras_fig{numero:02d}_M_r{int(round(cible*100)):03d}")
+    _sauvegarder(
+        fig,
+        f"05_carreras_fig{numero:02d}_M_r{int(round(cible*100)):03d}_{etat}",
+    )
 
 
-def figure_generateurs(cfg, ratios, arrays) -> None:
-    idx = _index_ratio(ratios, 0.30)
+def figure_generateurs(cfg, ratios, arrays, cible: float = 0.30,
+                       suffixe: str = "r030") -> None:
+    """Fig. 4 : production de chaque générateur au ratio le plus proche de `cible`."""
+    idx = _index_ratio(ratios, cible)
     ratio = float(ratios[idx])
     frac = arrays["production_initiale"][idx] / cfg.puissance_max
 
@@ -432,7 +460,7 @@ def figure_generateurs(cfg, ratios, arrays) -> None:
     )
     ax.grid(alpha=0.2, axis="y")
     fig.tight_layout()
-    _sauvegarder(fig, "05_carreras_fig04_generateurs_r030")
+    _sauvegarder(fig, f"05_carreras_fig04_generateurs_{suffixe}")
 
 
 def figure_transitions(ratios, rows, taille: int) -> None:
@@ -671,7 +699,13 @@ def main() -> None:
     # On force l'inclusion des quatre ratios historiques exacts.
     # ------------------------------------------------------------------
     ratios = _ratios(args.ratio_min, args.ratio_max, args.pas)
-    ratios = np.unique(np.concatenate([ratios, np.asarray(RATIOS_CIBLES)]))
+    # Ratio de la Table I (chaque charge = |P_L| = 74) : 0.8696 pour le 382.
+    # C'est à ce ratio que les Fig. 3-4 publiées sont reproduites ; 0.30 est
+    # conservé comme témoin de l'étiquette publiée.
+    ratio_table = float(cfg.ratio_table)
+    ratios = np.unique(
+        np.concatenate([ratios, np.asarray(RATIOS_CIBLES), [ratio_table]])
+    )
     ratios.sort()
 
     print("--- Balayage principal ---")
@@ -690,21 +724,33 @@ def main() -> None:
     # Figures homologues aux Fig. 3-9.
     figure_M_lignes(
         ratios, arrays, 0.30, 3,
-        "Fraction de charge des lignes à faible demande"
+        "Fraction de charge des lignes à faible demande",
+        etat="initial",
     )
-    figure_generateurs(cfg, ratios, arrays)
+    figure_generateurs(cfg, ratios, arrays)  # témoin r = 0.30
+    figure_M_lignes(
+        ratios, arrays, ratio_table, 3,
+        "Fraction de charge des lignes — charges de la Table I",
+        etat="initial",
+    )
+    figure_generateurs(
+        cfg, ratios, arrays, cible=ratio_table, suffixe="table_I"
+    )
     figure_transitions(ratios, rows, args.taille)
     figure_M_lignes(
         ratios, arrays, 1.04, 6,
-        "Lignes juste au-dessus de la limite de génération"
+        "Lignes juste au-dessus de la limite de génération",
+        etat="initial",
     )
     figure_M_lignes(
         ratios, arrays, 1.45, 7,
-        "Lignes au voisinage de la limite de transport"
+        "Lignes au voisinage de la limite de transport",
+        etat="initial",
     )
     figure_M_lignes(
         ratios, arrays, 1.73, 8,
-        "Lignes après la transition de transport"
+        "Lignes après la transition de transport",
+        etat="final",
     )
     figure_carte(
         ratios, arrays, 9, "carte_M",
@@ -757,12 +803,33 @@ def main() -> None:
     # Métadonnées et résumé.
     # ------------------------------------------------------------------
     meta = _metadata(args, cfg, audit)
+    idx_t = _index_ratio(ratios, ratio_table)
+    m_tab = arrays["M_initial"][idx_t, _ligne_exterieure_generateurs(cfg.reseau)]
+    frac_tab = arrays["production_initiale"][idx_t] / cfg.puissance_max
+    audit_table = {
+        "ratio_table_I": ratio_table,
+        "m_exterieur_moyen": float(np.nanmean(m_tab)) if m_tab.size else None,
+        "ecart_relatif_pct": (
+            100.0 * abs(float(np.nanmean(m_tab)) - CIBLE_M_EXTERIEUR_R030)
+            / CIBLE_M_EXTERIEUR_R030 if m_tab.size else None
+        ),
+        "generateurs_a_99pct": int(np.sum(frac_tab >= 0.99)),
+        "generateurs_sous_1pct": int(np.sum(frac_tab <= 0.01)),
+    }
+    meta["audit_table_I"] = audit_table
     (DOSSIER_DATA_DET / f"metadata_deterministe_{args.taille}.json").write_text(
         json.dumps(meta, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
 
     print("\n=== Audit Carreras déterministe ===")
+    if audit_table["m_exterieur_moyen"] is not None:
+        print(f"Table I : r = {ratio_table:.6f} | M extérieur = "
+              f"{audit_table['m_exterieur_moyen']:.6f} "
+              f"(écart {audit_table['ecart_relatif_pct']:.3f} % à 0.601) | "
+              f"générateurs pleins/nuls = "
+              f"{audit_table['generateurs_a_99pct']}/"
+              f"{audit_table['generateurs_sous_1pct']}")
     print(f"seuil génération observé       : {audit.seuil_generation_observe}")
     print(f"cible publiée                  : {CIBLE_GENERATION:.2f}")
     print(f"seuil Mmax initial ≥ 0.99      : {audit.seuil_transport_initial_observe}")
