@@ -51,6 +51,23 @@ Au sein d'un même niveau, les charges sont physiquement équivalentes ; un peti
 terme de rang (voir `priorites_exterieur_dabord`) coupe d'abord les indices les
 plus élevés. L'optimum devient unique et ne dépend plus du solveur.
 
+Robustesse numérique
+--------------------
+Le problème est toujours admissible (tout à zéro respecte chaque contrainte) :
+un échec du solveur est donc numérique, jamais physique. Sur de longues
+dynamiques lentes, HiGHS peut en rencontrer (statut « Unknown ») quand les
+échelles divergent : demande multipliée par des centaines au fil des siècles
+simulés, limites des lignes mortes réduites d'un facteur 1e6. `resoudre`
+essaie alors, dans l'ordre de `STRATEGIES_SOLVEUR`, des formulations
+équivalentes du même programme linéaire : même problème mis à l'échelle
+(toutes les puissances divisées par la demande totale), puis simplexe dual et
+point intérieur sans prérésolution. Une stratégie de secours n'est acceptée
+que si sa solution respecte toutes les contraintes du problème d'origine
+(`_verifier_admissible`). Le premier essai est l'appel historique : quand il
+réussit, rien ne change, bit pour bit. `Solution.strategie` indique la
+stratégie retenue ; si aucune ne réussit, `EchecDispatch` transporte le
+problème complet pour qu'on puisse le sauvegarder et l'auditer.
+
 Critères de validation : sur un réseau réduit résolu à la main, les flux doivent
 coïncider ; à faible charge, la solution ne doit comporter ni délestage ni ligne
 saturée ; au-delà de la capacité totale de production, le délestage doit égaler
@@ -78,6 +95,36 @@ DEPARTAGES = (DEPARTAGE_HIGHS, DEPARTAGE_EXTERIEUR_DABORD)
 # absolu) tout en étant négligeable devant toute charge physique.
 TOLERANCE_SERVIE = 1e-9
 
+# Stratégies essayées dans l'ordre : (nom, méthode linprog, mise à l'échelle,
+# options HiGHS). La première est l'appel historique, inchangé.
+STRATEGIES_SOLVEUR = (
+    ("highs", "highs", False, {}),
+    ("highs_echelle", "highs", True, {}),
+    ("simplexe_dual", "highs-ds", True, {"presolve": False}),
+    ("point_interieur", "highs-ipm", True, {"presolve": False}),
+)
+STRATEGIE_HISTORIQUE = STRATEGIES_SOLVEUR[0][0]
+
+# Tolérance relative (à l'échelle du problème) de la vérification
+# d'admissibilité d'une solution de secours.
+TOLERANCE_ADMISSIBILITE = 1e-7
+
+
+class EchecDispatch(RuntimeError):
+    """
+    Aucune stratégie de `STRATEGIES_SOLVEUR` n'a résolu le programme linéaire.
+
+    `probleme` contient les tableaux complets du programme (c, A_ub, b_ub,
+    A_eq, b_eq, bornes inférieures et supérieures, étape) : l'appelant peut
+    les sauvegarder avec `numpy.savez` pour rejouer et auditer l'échec.
+    `messages` liste le message de chaque tentative.
+    """
+
+    def __init__(self, message: str, probleme: dict, messages: list[str]):
+        super().__init__(message)
+        self.probleme = probleme
+        self.messages = messages
+
 
 @dataclass
 class Solution:
@@ -98,6 +145,14 @@ class Solution:
     taux_de_charge: np.ndarray
     cout: float
     departage: str = DEPARTAGE_HIGHS
+    # Stratégie de `STRATEGIES_SOLVEUR` qui a produit la solution (la plus
+    # « tardive » des deux étapes pour "exterieur_dabord").
+    strategie: str = STRATEGIE_HISTORIQUE
+
+    @property
+    def secours(self) -> bool:
+        """Vrai si une stratégie de secours a été nécessaire."""
+        return self.strategie != STRATEGIE_HISTORIQUE
 
     @property
     def delestage_total(self) -> float:
@@ -143,6 +198,52 @@ def _matrices(reseau: Reseau, A: np.ndarray | None):
     autres = np.array([i for i in range(reseau.n_noeuds) if i != reseau.reference])
     # On applique A aux injections hors référence pour obtenir les flux de ligne.
     return A, selection, A @ selection[autres], n_g, n_c
+
+
+def _verifier_admissible(x, A_ub, b_ub, A_eq, b_eq, inf, sup, echelle) -> bool:
+    """Vérifie qu'un vecteur respecte toutes les contraintes, à tolérance relative."""
+    tol = TOLERANCE_ADMISSIBILITE * echelle
+    if x is None or not np.all(np.isfinite(x)):
+        return False
+    return bool(np.all(x >= inf - tol) and np.all(x <= sup + tol)
+                and np.all(A_ub @ x <= b_ub + tol)
+                and np.all(np.abs(A_eq @ x - b_eq) <= tol))
+
+
+def _linprog_robuste(c, A_ub, b_ub, A_eq, b_eq, inf, sup, etape: str):
+    """
+    Résout min c·x sous A_ub x <= b_ub, A_eq x = b_eq, inf <= x <= sup.
+
+    Essaie les stratégies de `STRATEGIES_SOLVEUR` dans l'ordre et renvoie
+    (x, nom de la stratégie). Mise à l'échelle : toutes les contraintes portent
+    sur des puissances ; on divise seconds membres et bornes par
+    s = max(1, max |sup|), on résout en y = x / s, puis x = s·y. L'objectif
+    est linéaire : l'optimum est le même, seule l'arithmétique change.
+    Lève `EchecDispatch` si aucune stratégie ne donne une solution admissible.
+    """
+    finies = np.abs(sup[np.isfinite(sup)])
+    echelle = max(1.0, float(finies.max()) if finies.size else 1.0)
+    messages = []
+    for nom, methode, a_echelle, options in STRATEGIES_SOLVEUR:
+        s = echelle if a_echelle else 1.0
+        resultat = linprog(c, A_ub=A_ub, b_ub=b_ub / s, A_eq=A_eq, b_eq=b_eq / s,
+                           bounds=np.column_stack([inf / s, sup / s]),
+                           method=methode, options=options or None)
+        if resultat.success:
+            x = resultat.x * s
+            # Le premier essai est l'appel historique : on ne le soumet à
+            # aucune vérification supplémentaire, pour ne rien changer.
+            if nom == STRATEGIE_HISTORIQUE or _verifier_admissible(
+                    x, A_ub, b_ub, A_eq, b_eq, inf, sup, echelle):
+                return x, nom
+            messages.append(f"{nom} : solution non admissible au contrôle")
+        else:
+            messages.append(f"{nom} : {resultat.message}")
+    probleme = {"c": c, "A_ub": A_ub, "b_ub": b_ub, "A_eq": A_eq, "b_eq": b_eq,
+                "borne_inf": inf, "borne_sup": sup, "etape": np.array(etape)}
+    raise EchecDispatch(
+        f"Le dispatch a échoué ({etape}) avec toutes les stratégies : "
+        + " | ".join(messages), probleme, messages)
 
 
 def valider_departage(departage) -> str:
@@ -199,7 +300,8 @@ def priorites_exterieur_dabord(reseau: Reseau) -> np.ndarray:
 
 def _solution(reseau: Reseau, x: np.ndarray, flux_par_variable: np.ndarray,
               demande: np.ndarray, limites: np.ndarray, n_g: int,
-              poids_delestage: float, departage: str) -> Solution:
+              poids_delestage: float, departage: str,
+              strategie: str = STRATEGIE_HISTORIQUE) -> Solution:
     """Construit la `Solution` à partir du vecteur de décision optimal."""
     production = x[:n_g]
     charge_servie = x[n_g:]
@@ -223,6 +325,7 @@ def _solution(reseau: Reseau, x: np.ndarray, flux_par_variable: np.ndarray,
         # identique pour les deux règles de départage, à la tolérance près.
         cout=float(production.sum() - poids_delestage * charge_servie.sum()),
         departage=departage,
+        strategie=strategie,
     )
 
 
@@ -287,13 +390,11 @@ def resoudre(
 
     # Chaque variable de décision est bornée par 0 et par sa limite physique :
     # production <= puissance_max, charge_servie <= demande.
-    bornes = [(0.0, p) for p in puissance_max] + [(0.0, d) for d in demande]
+    inf = np.zeros(n_g + n_c)
+    sup = np.concatenate([puissance_max, demande])
 
-    resultat = linprog(cout, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq, b_eq=b_eq,
-                       bounds=bornes, method="highs")
-    if not resultat.success:
-        raise RuntimeError(f"Le dispatch a échoué : {resultat.message}")
-    x = resultat.x
+    x, strategie = _linprog_robuste(cout, A_ub, b_ub, A_eq, b_eq, inf, sup,
+                                    "étape 1")
 
     if departage == DEPARTAGE_EXTERIEUR_DABORD:
         servie_max = float(x[n_g:].sum())
@@ -307,19 +408,15 @@ def resoudre(
             ligne_servie = np.concatenate([np.zeros(n_g), -np.ones(n_c)])[None, :]
             A_ub_2 = np.vstack([A_ub, ligne_servie])
             b_ub_2 = np.concatenate([b_ub, [-(servie_max - tolerance)]])
-            etape_2 = linprog(cout_2, A_ub=A_ub_2, b_ub=b_ub_2, A_eq=A_eq,
-                              b_eq=b_eq, bounds=bornes, method="highs")
-            if not etape_2.success:
-                # La solution de l'étape 1 est admissible pour l'étape 2 :
-                # un échec ici signale un problème numérique, jamais un choix.
-                raise RuntimeError(
-                    "Le départage 'exterieur_dabord' a échoué alors que "
-                    f"l'étape 1 est admissible : {etape_2.message}"
-                )
-            x = etape_2.x
+            # La solution de l'étape 1 est admissible pour l'étape 2 : un échec
+            # ici est numérique, jamais un choix ; les mêmes secours s'appliquent.
+            x, strategie_2 = _linprog_robuste(cout_2, A_ub_2, b_ub_2, A_eq, b_eq,
+                                              inf, sup, "étape 2")
+            if strategie_2 != STRATEGIE_HISTORIQUE:
+                strategie = strategie_2
 
     return _solution(reseau, x, flux_par_variable, demande, limites, n_g,
-                     poids_delestage, departage)
+                     poids_delestage, departage, strategie)
 
 
 def demande_uniforme(reseau: Reseau, total: float,

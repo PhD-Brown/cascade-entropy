@@ -226,3 +226,14 @@ data/
 
 # Aucune donnée externe ne doit entrer dans le dépôt
 donnees_externes/
+# --- Menage des figures (5 oct. 2026) : seules les figures de reference sont versionnees ---
+figures/**/*.pdf
+figures/**/runs/
+figures/01_croisement_multiechelle.png
+figures/03_evolution/
+figures/04_entropie/
+figures/04_loi_puissance_taille_finie/
+figures/05_reproduction_carreras/05_scan_controle.png
+figures/05_reproduction_carreras/deterministe/*
+!figures/05_reproduction_carreras/deterministe/05_carreras_fig09_carte_M.png
+!figures/05_reproduction_carreras/deterministe/05_carreras_fig10_carte_M_etendue.png

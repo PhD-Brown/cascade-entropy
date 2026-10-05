@@ -104,6 +104,28 @@ Sortie, commune aux deux modes — une entrée par jour, structure
 Un seul `numpy.random.Generator` transmis en paramètre, jamais d'état global —
 même exigence que pour `cascade.journee()`.
 
+Extensions pour SO2 (Carreras et al. 2004), toutes optionnelles ; les valeurs
+par défaut reproduisent exactement le comportement antérieur :
+
+  - Observables supplémentaires par jour : `demande_moyenne` (P̄_D(t)),
+    `demande_totale` (demande tirée), `fraction_delestee` (délestage / demande
+    tirée, la « load shed normalized to the total power demand » du papier),
+    `n_lignes_tombees`, `n_avaries_surcharge` et `n_avaries_p0` (le « number of
+    line outages during a blackout »).
+  - `Parametres.fluctuation` : ``"noeud"`` (défaut : facteur indépendant par
+    charge, comportement historique) ou ``"regionale"`` (un facteur commun par
+    région, `n_regions` régions définies par `carreras.groupes_regions`, comme
+    dans la réplication SO1 ; Carreras 2004, annexe : « The random fluctuation
+    is applied to either each load or to "regional" groups of load nodes »).
+    Dans les deux cas le facteur est uniforme sur [1 − g, 1 + g], g = γ − 1.
+  - `marge_pour_G(G, g)` : convertit le paramètre G de l'Éq. (5) en
+    `marge_seuil` = (ΔP/P)_c = G · g, avec γ̃ = g la fluctuation relative
+    maximale de la demande totale.
+  - `EtatEvolution` et `simuler(..., etat=...)` : un run long se découpe en
+    blocs reprenables. Simuler 2n jours d'un coup ou n jours puis n jours à
+    partir de l'état renvoyé (avec le même générateur aléatoire) donne
+    exactement la même série.
+
 Échelle pour cette version : quelques milliers de jours (proposition : 3000),
 sans retrait de transitoire — assumé et documenté comme démonstration du
 mécanisme, pas comme reproduction statistique complète de Carreras et al.
@@ -138,12 +160,14 @@ from pathlib import Path
 
 import numpy as np
 
+from .carreras import groupes_regions
 from .cascade import Journee, journee
 from .dispatch import DEPARTAGE_HIGHS, demande_uniforme, valider_departage
 from .entropie import nombre_effectif
 from .reseau import Reseau, capacite_incidente
 
 MODES = ("independant", "auto_organise")
+FLUCTUATIONS = ("noeud", "regionale")
 JOURS_PAR_AN = 365
 # Sous cette fraction de la demande totale, un délestage n'est que du bruit du
 # solveur linéaire, pas un blackout : il ne déclenche aucun renforcement.
@@ -176,6 +200,24 @@ class Parametres:
     marge_seuil: float | None = None
     mu: float | None = None
     departage: str = DEPARTAGE_HIGHS
+    fluctuation: str = "noeud"
+    n_regions: int = 3
+
+
+@dataclass
+class EtatEvolution:
+    """
+    État du réseau à la fin d'un jour, pour poursuivre une simulation.
+
+    `jour` est le dernier jour simulé (0 avant le premier). `limites` et
+    `puissance_max` sont celles du lendemain, après les mises à niveau. L'état
+    du générateur aléatoire n'en fait pas partie : on poursuit avec le même
+    `numpy.random.Generator` (ou on le restaure via `bit_generator.state`).
+    """
+
+    jour: int
+    limites: np.ndarray
+    puissance_max: np.ndarray
 
 
 @dataclass
@@ -195,6 +237,31 @@ class JourEvolution:
     marge_moyenne: float | None = None
     generateurs_ameliores: np.ndarray | None = None
     lignes_renforcees: np.ndarray | None = None
+    demande_moyenne: float = float("nan")
+    demande_totale: float = float("nan")
+    fraction_delestee: float = float("nan")
+    n_lignes_tombees: int = 0
+    n_avaries_surcharge: int = 0
+    n_avaries_p0: int = 0
+    # Dispatchs du jour résolus par une stratégie de secours du solveur.
+    n_secours_solveur: int = 0
+
+
+def marge_pour_G(G: float, g: float) -> float:
+    """
+    Seuil de marge (ΔP/P)_c correspondant au paramètre G de Carreras 2004.
+
+    Éq. (5) : G = [ΔP_c / P̄_D] / γ̃, où γ̃ est la fluctuation relative maximale
+    de la demande totale. Avec un facteur uniforme sur [1 − g, 1 + g], γ̃ = g
+    (atteint quand toutes les régions sont au maximum ; c'est exactement la
+    borne pour N_F = 1 et une borne supérieure pour N_F > 1), d'où
+        marge_seuil = G · g.
+    """
+    G = _reel(G, "G", minimum=0.0)
+    g = _reel(g, "g", minimum=0.0, strict=True)
+    if g > 1.0:
+        raise ValueError("g doit être dans ]0, 1].")
+    return G * g
 
 
 def marge_moyenne(puissance_max: np.ndarray, demande_totale: float) -> float:
@@ -244,6 +311,16 @@ def _verifier(reseau: Reseau, n_jours, parametres: Parametres) -> None:
     if parametres.mode not in MODES:
         raise ValueError(f"mode doit être l'un de {MODES}.")
     valider_departage(parametres.departage)
+    if parametres.fluctuation not in FLUCTUATIONS:
+        raise ValueError(f"fluctuation doit être l'une de {FLUCTUATIONS}.")
+    if parametres.fluctuation == "regionale":
+        # journee() reçoit alors g = 0 : on contrôle g ici.
+        g = _reel(parametres.g, "g", minimum=0.0)
+        if g > 1.0:
+            raise ValueError("g doit être dans [0, 1].")
+        if (isinstance(parametres.n_regions, (bool, np.bool_))
+                or not isinstance(parametres.n_regions, Integral)):
+            raise ValueError("n_regions doit être un entier.")
     _reel(parametres.demande_initiale, "demande_initiale", minimum=0.0, strict=True)
 
     puissance_max = np.asarray(parametres.puissance_max, dtype=float)
@@ -271,12 +348,22 @@ def _observer(jour: int, resultat: Journee) -> JourEvolution:
     """
     en_service = ~resultat.hors_service_initial
     flux = resultat.solution_initiale.flux[en_service]
+    demande = float(resultat.demande.sum())
+    n_surcharge = int(sum(v.size for v in resultat.avaries_par_surcharge))
+    n_p0 = int(resultat.avaries_accidentelles.size)
     return JourEvolution(
         jour=jour,
         delestage_total=resultat.delestage_total,
         taux_maximal=resultat.taux_maximal_initial,
         nombre_effectif=nombre_effectif(flux) if flux.size else float("nan"),
         n_lignes_en_service=int(en_service.sum()),
+        demande_totale=demande,
+        fraction_delestee=(resultat.delestage_total / demande if demande > 0
+                           else 0.0),
+        n_lignes_tombees=n_surcharge + n_p0,
+        n_avaries_surcharge=n_surcharge,
+        n_avaries_p0=n_p0,
+        n_secours_solveur=resultat.n_secours,
     )
 
 
@@ -322,8 +409,21 @@ def _renforcer(resultat: Journee, demande_totale: float, limites: np.ndarray,
     return lignes
 
 
+def etat_initial(reseau: Reseau, parametres: Parametres) -> EtatEvolution:
+    """État avant le premier jour : copies des limites et capacités de départ."""
+    limites = reseau.limites if parametres.limites is None else parametres.limites
+    if limites is None:
+        raise ValueError("Aucune limite de ligne définie.")
+    return EtatEvolution(
+        jour=0,
+        limites=np.array(limites, dtype=float),
+        puissance_max=np.array(parametres.puissance_max, dtype=float),
+    )
+
+
 def simuler(reseau: Reseau, n_jours: int, parametres: Parametres,
-            rng: np.random.Generator) -> list[JourEvolution]:
+            rng: np.random.Generator, etat: EtatEvolution | None = None,
+            retourner_etat: bool = False):
     """
     Fait évoluer le réseau sur `n_jours` jours et retourne une entrée par jour.
 
@@ -333,34 +433,55 @@ def simuler(reseau: Reseau, n_jours: int, parametres: Parametres,
     seuil et les lignes tombées par surcharge sont renforcées. Chaque jour repart
     avec toutes les lignes en service : les avaries ne durent qu'une journée.
 
-    Les tirages suivent un ordre fixe, celui de `journee()` puis, en mode
-    auto_organise, celui du choix des générateurs à améliorer. Le `Reseau` et les
-    tableaux de `parametres` ne sont jamais modifiés.
+    `etat` (facultatif) reprend une simulation là où un appel précédent l'a
+    laissée : les jours sont numérotés à partir de `etat.jour + 1` et la demande
+    moyenne suit la même loi P̄_D(t). Avec `retourner_etat=True`, la fonction
+    retourne `(jours, etat_final)`. L'état fourni n'est jamais modifié.
+
+    Les tirages suivent un ordre fixe : en fluctuation régionale, les facteurs
+    régionaux, puis ceux de `journee()`, puis, en mode auto_organise, le choix
+    des générateurs à améliorer. Le `Reseau` et les tableaux de `parametres` ne
+    sont jamais modifiés.
     """
     _verifier(reseau, n_jours, parametres)
     if not isinstance(rng, np.random.Generator):
         raise TypeError("rng doit être un numpy.random.Generator.")
-    limites = reseau.limites if parametres.limites is None else parametres.limites
-    if limites is None:
-        raise ValueError("Aucune limite de ligne définie.")
+    if etat is None:
+        etat = etat_initial(reseau, parametres)
+    elif not isinstance(etat, EtatEvolution):
+        raise TypeError("etat doit être un EtatEvolution.")
+    if etat.limites.shape != (reseau.n_lignes,) or \
+            etat.puissance_max.shape != reseau.generateurs.shape:
+        raise ValueError("L'état ne correspond pas au réseau.")
 
     auto = parametres.mode == "auto_organise"
+    regionale = parametres.fluctuation == "regionale"
+    groupes = (groupes_regions(reseau, int(parametres.n_regions))
+               if regionale else None)
+    g_journee = 0.0 if regionale else parametres.g
+
     # Copies : les capacités et les limites évoluent au fil des jours.
-    limites = np.array(limites, dtype=float)
-    puissance_max = np.array(parametres.puissance_max, dtype=float)
+    limites = np.array(etat.limites, dtype=float)
+    puissance_max = np.array(etat.puissance_max, dtype=float)
     demande_initiale = float(parametres.demande_initiale)
     lambda_jour = parametres.lambda_ ** (1.0 / JOURS_PAR_AN)
 
     jours: list[JourEvolution] = []
-    for t in range(1, n_jours + 1):
+    for t in range(etat.jour + 1, etat.jour + n_jours + 1):
         # Demande moyenne du jour : constante en mode independant, en croissance
         # exponentielle quotidienne en mode auto_organise.
         demande_totale = (demande_initiale * np.exp((lambda_jour - 1.0) * t)
                           if auto else demande_initiale)
-        resultat = journee(reseau, demande_uniforme(reseau, demande_totale),
-                           puissance_max, parametres.p0, parametres.p1, parametres.g,
-                           rng, limites=limites, departage=parametres.departage)
+        demande = demande_uniforme(reseau, demande_totale)
+        if regionale:
+            facteurs = rng.uniform(1.0 - parametres.g, 1.0 + parametres.g,
+                                   size=int(groupes.max()) + 1)
+            demande = demande * facteurs[groupes]
+        resultat = journee(reseau, demande, puissance_max, parametres.p0,
+                           parametres.p1, g_journee, rng, limites=limites,
+                           departage=parametres.departage)
         jour = _observer(t, resultat)
+        jour.demande_moyenne = float(demande_totale)
 
         if auto:
             jour.capacite_totale_generateurs = float(puissance_max.sum())
@@ -371,6 +492,10 @@ def simuler(reseau: Reseau, n_jours: int, parametres: Parametres,
             jour.lignes_renforcees = _renforcer(resultat, demande_totale, limites,
                                                 parametres.mu)
         jours.append(jour)
+
+    if retourner_etat:
+        return jours, EtatEvolution(jour=etat.jour + n_jours, limites=limites,
+                                    puissance_max=puissance_max)
     return jours
 
 
@@ -390,6 +515,13 @@ def series(jours: list[JourEvolution]) -> dict[str, np.ndarray]:
         "taux_maximal": np.array([j.taux_maximal for j in jours], dtype=float),
         "nombre_effectif": np.array([j.nombre_effectif for j in jours], dtype=float),
         "n_lignes_en_service": np.array([j.n_lignes_en_service for j in jours], dtype=int),
+        "demande_moyenne": np.array([j.demande_moyenne for j in jours], dtype=float),
+        "demande_totale": np.array([j.demande_totale for j in jours], dtype=float),
+        "fraction_delestee": np.array([j.fraction_delestee for j in jours], dtype=float),
+        "n_lignes_tombees": np.array([j.n_lignes_tombees for j in jours], dtype=int),
+        "n_avaries_surcharge": np.array([j.n_avaries_surcharge for j in jours], dtype=int),
+        "n_avaries_p0": np.array([j.n_avaries_p0 for j in jours], dtype=int),
+        "n_secours_solveur": np.array([j.n_secours_solveur for j in jours], dtype=int),
     }
     if jours[0].capacite_totale_generateurs is not None:
         resultat["capacite_totale_generateurs"] = np.array(

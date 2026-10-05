@@ -118,6 +118,9 @@ class Journee:
     avaries_accidentelles: np.ndarray
     avaries_par_surcharge: list[np.ndarray]
     n_iterations: int
+    # Nombre de dispatchs de la journée résolus par une stratégie de secours
+    # du solveur (voir `dispatch.STRATEGIES_SOLVEUR`) ; 0 presque toujours.
+    n_secours: int = 0
 
     @property
     def delestage_total(self) -> float:
@@ -249,6 +252,7 @@ def journee(
                            departage)
     solution_initiale = solution
     n_iterations = 1
+    n_secours = int(solution.secours)
 
     # 4. Cascade. Les candidates sont les lignes saturées ET en service : une
     # ligne morte a un taux de charge apparent d'environ 1 qu'il faut ignorer.
@@ -265,6 +269,7 @@ def journee(
         solution = _redispatch(reseau, demande, limites, puissance_max, hors_service,
                                departage)
         n_iterations += 1
+        n_secours += int(solution.secours)
 
     return Journee(
         demande=demande,
@@ -274,4 +279,5 @@ def journee(
         avaries_accidentelles=avaries_accidentelles,
         avaries_par_surcharge=avaries_par_surcharge,
         n_iterations=n_iterations,
+        n_secours=n_secours,
     )

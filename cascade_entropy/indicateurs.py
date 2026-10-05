@@ -347,3 +347,68 @@ def exposant_loi_de_puissance(
     # l'estimateur ; elle diminue quand le nombre de données augmente.
     incertitude = (alpha - 1.0) / np.sqrt(n)
     return float(alpha), float(incertitude), int(n)
+
+
+# ---------------------------------------------------------------------------
+# Régime stationnaire d'une série d'événements (SO2, Carreras et al. 2004)
+# ---------------------------------------------------------------------------
+
+def comptes_par_fenetre(evenements: np.ndarray, largeur: int) -> np.ndarray:
+    """
+    Nombre d'événements par fenêtre consécutive de `largeur` pas de temps.
+
+    Carreras et al. (2004, Fig. 2) tracent le « number of blackouts per 300
+    days ». `evenements` est un tableau booléen (ou 0/1), un élément par jour ;
+    la dernière fenêtre incomplète est ignorée.
+    """
+    evenements = np.asarray(evenements)
+    if evenements.ndim != 1 or evenements.size == 0:
+        raise ValueError("evenements doit être un vecteur non vide.")
+    if not np.all(np.isin(evenements, (0, 1))):
+        raise ValueError("evenements doit être booléen (0 ou 1).")
+    largeur = int(largeur)
+    if largeur < 1:
+        raise ValueError("largeur doit être >= 1.")
+    n = evenements.size // largeur
+    if n == 0:
+        raise ValueError("Série plus courte qu'une fenêtre.")
+    return evenements[: n * largeur].reshape(n, largeur).sum(axis=1).astype(int)
+
+
+def troncature_mser(
+    evenements: np.ndarray,
+    fenetre: int = 300,
+    fraction_max: float = 0.5,
+) -> int:
+    """
+    Début du régime stationnaire par la règle MSER (Marginal Standard Error Rule).
+
+    Règle standard de l'analyse de sortie de simulation (White, 1997 ;
+    White, Cobb & Spratt, 2000) pour retirer le biais d'initialisation. Les
+    événements sont regroupés en comptes par fenêtre de `fenetre` jours,
+    Y_1 … Y_n ; on choisit la troncature d qui minimise
+
+        MSER(d) = sum_{i>d} (Y_i − Ȳ_d)² / (n − d)²,
+
+    avec d <= fraction_max · n. Retourne d en jours (multiple de `fenetre`).
+
+    MSER minimise l'erreur quadratique de la moyenne, pas le biais seul : pour
+    une dérive lente, il peut tronquer avant la fin exacte de la dérive. Le
+    script SO2 l'utilise donc comme diagnostic, à comparer au transitoire publié
+    (≈ 20 000 jours chez Carreras et al. 2004), pas comme seul critère.
+    """
+    if not 0.0 < float(fraction_max) <= 0.9:
+        raise ValueError("fraction_max doit être dans ]0, 0.9].")
+    y = comptes_par_fenetre(evenements, fenetre).astype(float)
+    n = y.size
+    if n < 4:
+        raise ValueError("Série trop courte : au moins quatre fenêtres requises.")
+    d_max = max(1, int(fraction_max * n))
+    # Sommes cumulées depuis la fin pour évaluer tous les d en O(n).
+    s1 = np.cumsum(y[::-1])[::-1]
+    s2 = np.cumsum((y ** 2)[::-1])[::-1]
+    d = np.arange(d_max)
+    m = n - d
+    variance_totale = s2[d] - s1[d] ** 2 / m
+    critere = variance_totale / m ** 2
+    return int(np.argmin(critere)) * int(fenetre)
