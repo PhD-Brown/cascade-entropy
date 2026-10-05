@@ -9,10 +9,10 @@ Fil A : modèle du réseau                         Fil B : outils d'analyse
   reseau      topologie, flux, limites             synthetiques   séries de comportement connu
   dispatch    demande -> flux sur les lignes       entropie       série -> mesure informationnelle
   cascade     état du réseau -> blackout           indicateurs    série -> indicateur de référence
-  evolution   N jours -> séries temporelles
+  evolution   N jours -> séries temporelles          analyse_series séries de SO2 -> H, cycles, queues
 
                   séries temporelles écrites sur disque
-        (le fil A les produit, le fil B les lit : aucun import entre les fils)
+        (le fil A les produit, le fil B les lit : le fil B n'importe jamais le fil A)
 ```
 
 ### La règle : le fil B n'importe jamais le fil A
@@ -33,6 +33,7 @@ Aucun module du fil B n'importe un module du fil A. Les deux fils communiquent p
 | `synthetiques.py` | B | Séries de comportement connu (sinusoïde, bruits en `f^-β`) pour valider les analyses | `periodique`, `bruit_puissance`, `bruit_blanc`, `bruit_rose` |
 | `entropie.py` | B | Shannon, entropie de répartition, nombre effectif, entropie de permutation, SampEn, MSE | `nombre_effectif`, `multiechelle` |
 | `indicateurs.py` | B | Indicateurs de référence : exposant de Hurst `R/S`, détection du transitoire (MSER), diagnostics de queue | |
+| `analyse_series.py` | B | Analyse des séries de SO2 : `R/S` vectorisé par plage, référence par mélange, période dominante, queue de distribution | |
 | `controles.py` | B | Témoins : mélanges temporels (mêmes valeurs, ordre détruit) | `analyser` |
 | `figures.py` | transversal | Visualisations réutilisables | |
 | `chemins.py` | transversal | Chemins canoniques `data/` et `figures/` à la racine du dépôt | `racine_projet`, `DOSSIER_DATA`, `DOSSIER_FIGURES` |
@@ -79,4 +80,4 @@ serie = bruit_puissance(16384, beta=1.0, rng=rng)       # bruit rose
 echelles, valeurs = multiechelle(serie, echelles=20)    # entropie multiéchelle
 ```
 
-Pour des appels du fil A (réseau, dispatch, cascade, évolution), les scripts sont les exemples de référence : [`03_balayage_charge.py`](../scripts/03_balayage_charge.py) pour `reseau` et `dispatch`, [`06_validation_so1.py`](../scripts/06_validation_so1.py) pour `carreras` et `cascade`, [`07_dynamique_lente.py`](../scripts/07_dynamique_lente.py) pour `evolution`.
+Pour des appels du fil A (réseau, dispatch, cascade, évolution), les scripts sont les exemples de référence : [`03_balayage_charge.py`](../scripts/03_balayage_charge.py) pour `reseau` et `dispatch`, [`06_validation_so1.py`](../scripts/06_validation_so1.py) pour `carreras` et `cascade`, [`07_dynamique_lente.py`](../scripts/07_dynamique_lente.py) pour `evolution`. Pour `analyse_series` (fil B), l'exemple de référence est [`08_analyse_so2.py`](../scripts/08_analyse_so2.py).

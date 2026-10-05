@@ -22,7 +22,8 @@ Chaque script produit une figure ou un résultat chiffré destiné au rapport. U
 | `05_diagnostics_carreras.py` | A | Figures déterministes 3 à 11 de Carreras et al. (2002) | `data/` et `figures/05_reproduction_carreras/deterministe*/` | SO1 validé |
 | `05_reproduction_carreras.py` | A | Campagnes stochastiques de SO1 (`audit`, `scan`, `production`, `runs`) | `data/` et `figures/05_reproduction_carreras/runs/<RUN_ID>/` | SO1 |
 | `06_validation_so1.py` | A | Audit chiffré de SO1 contre les valeurs publiées | `data/05_reproduction_carreras/validation_so1/` | SO1 validé |
-| `07_dynamique_lente.py` | A | Dynamique lente de Carreras et al. (2004), cas taille × `G` | `data/` et `figures/07_dynamique_lente/runs/<run-id>/` | SO2 en cours |
+| `07_dynamique_lente.py` | A | Dynamique lente de Carreras et al. (2004), cas taille × `G` | `data/` et `figures/07_dynamique_lente/runs/<run-id>/` | SO2 produit (balayage `so2-G-scan` terminé) |
+| `08_analyse_so2.py` | B | Analyse des séries de SO2 : `H` avec références par mélange, cycles, Fig. 4, 7, 8, 9 et Table I de Carreras 2004 | `data/08_analyse_so2/<run-id>/` | SO2 analysé |
 
 ### Attention : le défaut de `--departage` n'est pas le même partout
 
@@ -233,6 +234,23 @@ python scripts/07_dynamique_lente.py run --resume so2-G-scan --workers 8
 ```
 
 **Sorties** : `data/07_dynamique_lente/runs/<run-id>/` (checkpoints, `metadata.json`, `resume.csv`) et `figures/07_dynamique_lente/runs/<run-id>/`.
+
+## `08_analyse_so2.py`
+
+Analyse des séries produites par `07_dynamique_lente.py` (fil B : le script lit les séries sur disque et appelle les outils de [`analyse_series.py`](../cascade_entropy/README.md), sans importer le modèle de réseau). Pour chaque cas taille × `G` d'un run :
+
+- exposant de Hurst `R/S` sur deux plages (10–365 jours et 600–25 000 jours), avec une **référence par mélange temporel** (50 copies mélangées par série, intervalle à 95 %) pour séparer la mémoire réelle du biais de R/S ;
+- période dominante du spectre (cycle des lignes, cycle de la génération) ;
+- les quantités des Fig. 4, 7, 8 et 9 et de la Table I de Carreras et al. (2004).
+
+**Options** : voir `python scripts/08_analyse_so2.py --help`.
+
+```powershell
+# Analyse du balayage en G (les options exactes sont données par --help)
+python scripts/08_analyse_so2.py --help
+```
+
+**Sorties** : `data/08_analyse_so2/<run-id>/`. Les résultats commentés (valeurs, écarts à Carreras 2004, cycles) sont dans [`docs/so2_carreras_2004.md`](../docs/so2_carreras_2004.md).
 
 ---
 
