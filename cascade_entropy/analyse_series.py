@@ -263,6 +263,33 @@ def pdf_logarithmique(valeurs, n_classes: int = 25):
     return centres[garde], densite[garde], effectifs[garde]
 
 
+def ccdf_logarithmique(valeurs, n_points: int = 30):
+    """
+    Fréquence cumulée relative P(X ≥ x) des valeurs > 0, sur une grille logarithmique.
+
+    C'est la « relative cumulative frequency » de Carreras et al. (2004,
+    Sec. III), calculée par la fonction de rang : pour chaque x de la grille,
+    la fraction des valeurs positives supérieures ou égales à x. Une densité
+    en x^-(1+a) donne une fréquence cumulée en x^-a : la pente cumulée vaut
+    la pente de la densité plus un. La Table I de Carreras 2004 donne les
+    pentes CUMULÉES (≈ −0.55), malgré sa légende « PDF ».
+
+    Retourne (x, fréquence cumulée, effectifs), où effectifs[i] est le nombre
+    de valeurs ≥ x[i] : il sert de poids à `plage_loi_puissance`, qui écarte
+    les points estimés sur trop peu de valeurs. Les zéros sont exclus.
+    """
+    valeurs = serie_finie(valeurs)
+    n_points = entier_positif(n_points, "n_points", minimum=3)
+    positives = np.sort(valeurs[valeurs > 0])
+    if positives.size < 2 or positives[0] == positives[-1]:
+        raise ValueError("Il faut au moins deux valeurs > 0 distinctes.")
+    x = np.logspace(np.log10(positives[0]), np.log10(positives[-1]), n_points)
+    # Même précaution que pdf_logarithmique : bornes exactes aux extrémités.
+    x[0], x[-1] = positives[0], positives[-1]
+    effectifs = positives.size - np.searchsorted(positives, x, side="left")
+    return x, effectifs / positives.size, effectifs.astype(float)
+
+
 def plage_loi_puissance(centres, densite, effectifs, r2_min: float = 0.98,
                         points_min: int = 4, effectif_min: int = 5,
                         pente_max: float | None = None) -> dict:

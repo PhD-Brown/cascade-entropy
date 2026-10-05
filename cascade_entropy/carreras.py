@@ -396,3 +396,128 @@ def bandes_ordonnees(configuration: ConfigurationCarreras) -> list[dict]:
                 "r_fin_critere": SEUIL_SATURATION * r_fin,
             })
     return bandes
+
+
+# ===========================================================================
+# Fig. 12–13 : seuil de transport et délestage d'une avarie isolée
+# ===========================================================================
+
+def _aval_par_ligne(reseau: Reseau) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Pour chaque ligne (parent -> enfant), charges et générateurs en aval.
+
+    Exige un arbre construit par `reseau.arbre()` (niveaux connus, lignes
+    orientées du parent vers l'enfant). Retourne deux tableaux d'entiers de
+    longueur n_lignes : nombre de charges et nombre de générateurs du
+    sous-arbre alimenté par la ligne.
+    """
+    if reseau.niveaux is None:
+        raise ValueError("Le réseau doit contenir ses niveaux hiérarchiques.")
+    niveaux = np.asarray(reseau.niveaux, dtype=int)
+    parent = np.full(reseau.n_noeuds, -1, dtype=int)
+    for a, b in reseau.lignes:
+        parent[int(b)] = int(a)
+    charges = np.zeros(reseau.n_noeuds, dtype=int)
+    charges[reseau.charges] = 1
+    generateurs = np.zeros(reseau.n_noeuds, dtype=int)
+    generateurs[reseau.generateurs] = 1
+    # Niveaux décroissants : chaque nœud est cumulé dans son parent après
+    # avoir reçu tous ses descendants.
+    for noeud in np.argsort(-niveaux, kind="stable"):
+        if parent[noeud] >= 0:
+            charges[parent[noeud]] += charges[noeud]
+            generateurs[parent[noeud]] += generateurs[noeud]
+    enfants = reseau.lignes[:, 1].astype(int)
+    return charges[enfants], generateurs[enfants]
+
+
+def seuil_transport(configuration: ConfigurationCarreras) -> float:
+    """
+    Seuil de transport r_T = min_l F_l^max N_L / (n_l P_C) (tableau SO1, section B).
+
+    Le minimum porte sur les lignes sans générateur en aval : leur flux vaut
+    exactement la demande de leur sous-arbre, n_l r P_C / N_L, tant que tout
+    est servi. Valeur dérivée de la Table I seule, sans dispatch ; elle
+    coïncide avec la bissection numérique à 1e-4 % près (06_validation_so1).
+    """
+    charges, generateurs = _aval_par_ligne(configuration.reseau)
+    masque = (generateurs == 0) & (charges > 0)
+    r = (configuration.limites[masque] * configuration.n_charges
+         / (charges[masque] * configuration.p_c))
+    return float(r.min())
+
+
+def delestage_avarie_unique(configuration: ConfigurationCarreras) -> np.ndarray:
+    """
+    Fraction de la demande perdue quand UNE ligne tombe, pour chaque ligne éligible.
+
+    Carreras (2002, Sec. V) : « a single line failure leads to a blackout PDF
+    decaying as P^-2 ». Dans un arbre, une ligne morte isole son sous-arbre.
+    Sous la limite de génération (r < 1), un sous-arbre qui contient des
+    générateurs reste autosuffisant ; seules les lignes SANS générateur en
+    aval délestent, exactement n_l / N_L de la demande (charges uniformes).
+
+    Retourne les fractions n_l / N_L des lignes éligibles, une par ligne :
+    chaque ligne a la même probabilité p0 de tomber, donc chaque valeur a le
+    même poids. Le nombre de lignes double à chaque niveau tandis que n_l est
+    divisé par deux : la masse est ∝ 1/s, et la densité en classes
+    logarithmiques ∝ s^-2. C'est la prédiction tracée sur la Fig. 12.
+    """
+    charges, generateurs = _aval_par_ligne(configuration.reseau)
+    masque = (generateurs == 0) & (charges > 0)
+    return charges[masque] / configuration.n_charges
+
+
+def delestage_bilan_ilots(
+    configuration: ConfigurationCarreras,
+    demande: np.ndarray,
+    hors_service: np.ndarray,
+) -> float:
+    """
+    Délestage quand AUCUNE ligne en service n'est contrainte : bilan par îlot.
+
+    Les lignes hors service découpent le réseau en îlots (composantes
+    connexes). Si aucune ligne en service n'atteint sa limite, le dispatch
+    peut servir dans chaque îlot min(demande, capacité) : le délestage vaut
+
+        somme_îlots max(0, D_îlot − P_max_îlot).
+
+    C'est exactement le cas sous le seuil critique (γ ρ < 0.99 : aucune
+    région ne peut saturer une ligne). Cette formule n'utilise ni programme
+    linéaire ni paramètre ajusté : elle sert de prédiction dérivée pour la
+    densité sous-critique de la Fig. 12 (avaries p0 + limite de génération),
+    et de test du dispatch (`tests/test_carreras_fig12.py`).
+
+    `demande` : une valeur par charge ; `hors_service` : masque booléen par
+    ligne. Les lignes mortes sont celles du modèle (réactance × 1e6, limite ×
+    1e-6) : leur flux résiduel, ≤ 1e-6 F_max, est négligé.
+    """
+    reseau = configuration.reseau
+    demande = np.asarray(demande, dtype=float)
+    hors_service = np.asarray(hors_service, dtype=bool)
+    if demande.shape != (configuration.n_charges,):
+        raise ValueError("Une demande par charge est requise.")
+    if hors_service.shape != (reseau.n_lignes,):
+        raise ValueError("Un indicateur hors service par ligne est requis.")
+
+    # Union-find sur les lignes en service.
+    racine = np.arange(reseau.n_noeuds)
+
+    def trouver(i: int) -> int:
+        while racine[i] != i:
+            racine[i] = racine[racine[i]]
+            i = racine[i]
+        return i
+
+    for (a, b), mort in zip(reseau.lignes, hors_service):
+        if not mort:
+            ra, rb = trouver(int(a)), trouver(int(b))
+            if ra != rb:
+                racine[ra] = rb
+    ilots = np.array([trouver(i) for i in range(reseau.n_noeuds)])
+
+    d_ilot = np.zeros(reseau.n_noeuds)
+    np.add.at(d_ilot, ilots[reseau.charges], demande)
+    g_ilot = np.zeros(reseau.n_noeuds)
+    np.add.at(g_ilot, ilots[reseau.generateurs], configuration.puissance_max)
+    return float(np.maximum(d_ilot - g_ilot, 0.0).sum())

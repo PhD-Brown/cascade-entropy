@@ -24,12 +24,19 @@ papier, avec leurs contrôles :
 - Fig. 7 : puissance servie relative et lignes par blackout selon G.
 - Fig. 8 : distribution du nombre de lignes tombées par blackout.
 - Fig. 9 : part des blackouts de plus de `--seuil-lignes` lignes (15 dans le papier).
-- Table I : queue de la densité du délestage normalisé. Carreras ne définit
-  pas sa méthode ; on retient la plus longue plage contiguë, en classes
-  logarithmiques, où log(densité) est linéaire en log(taille) avec R² ≥ 0.98
-  et une pente négative (`analyse_series.plage_loi_puissance`). C'est NOTRE
-  opérationnalisation ; si la densité n'a pas de vraie loi de puissance, la
-  plage trouvée est courte (étendue petite) et doit être lue comme telle.
+- Table I : queue du délestage normalisé, sur DEUX représentations.
+  Le texte de Carreras 2004 (Sec. III) calcule la Table I sur la fréquence
+  cumulée relative (fonction de rang) et définit l'« étendue » comme le
+  rapport entre le plus grand et le plus petit délestage décrits par la loi
+  de puissance ; sa légende dit pourtant « PDF ». On ajuste donc :
+    - la fréquence cumulée P(X ≥ x) (colonnes cumul_*, v1.1.0), comparable
+      aux indices publiés (≈ −0.55) ;
+    - la densité (colonnes queue_*), dont la pente vaut la pente cumulée − 1.
+  Dans les deux cas : plus longue plage contiguë, en échelle logarithmique,
+  où la relation log-log est linéaire avec R² ≥ 0.98 et de pente négative,
+  inférieure à −0.1 pour la fréquence cumulée afin d'écarter son plateau
+  initial à ≈ 1 (`analyse_series.plage_loi_puissance`). C'est NOTRE opérationnalisation ;
+  une étendue petite signale l'absence de vraie loi de puissance.
 
 Le transitoire écarté est celui du run (`transitoire` de metadata.json), sauf
 si `--transitoire` le remplace. Seuls les cas complets sont analysés ; les
@@ -85,6 +92,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 from cascade_entropy.analyse_series import (  # noqa: E402
     echelles_log,
+    ccdf_logarithmique,
     pdf_logarithmique,
     pentes_depuis_courbe,
     periode_dominante,
@@ -94,7 +102,7 @@ from cascade_entropy.analyse_series import (  # noqa: E402
 )
 from cascade_entropy.chemins import DOSSIER_DATA, DOSSIER_FIGURES  # noqa: E402
 
-SCRIPT_VERSION = "1.0.0"
+SCRIPT_VERSION = "1.1.0"
 
 DOSSIER_RUNS_07 = DOSSIER_DATA / "07_dynamique_lente" / "runs"
 DOSSIER_SORTIE = DOSSIER_DATA / "08_analyse_so2"
@@ -113,6 +121,16 @@ BANDE_LIGNES = (50.0, 20_000.0)
 H_COURT_PUBLIE = (0.53, 0.57)          # 0.55 ± 0.02, Fig. 3
 H_LIGNES_LONG_PUBLIE = (0.2, 0.4)      # Fig. 4b, texte p. 647
 RATIO_GRANDS_PUBLIE = {"faible G": 0.001, "G > 1": 0.007}  # Fig. 9
+# Table I (Carreras 2004) : pente de la fréquence cumulée par taille.
+PENTE_CUMUL_PUBLIEE = {46: -0.56, 94: -0.51, 190: -0.55, 382: -0.58}
+ETENDUE_PUBLIEE = {46: 4, 94: 8, 190: 13, 382: 31}
+# Nombre minimal de valeurs au-dessus d'un point de la fréquence cumulée pour
+# qu'il entre dans l'ajustement (les derniers points reposent sur 1 à 10 valeurs).
+EFFECTIF_MIN_CUMUL = 20
+# La fréquence cumulée vaut ≈ 1 sur tout le début de la distribution : ce
+# plateau est trivialement « linéaire » et ne dit rien de la queue. On exige
+# donc une pente cumulée < −0.1 (une densité qui décroît au moins en x^-1.1).
+PENTE_MAX_CUMUL = -0.1
 
 
 # ===========================================================================
@@ -312,9 +330,15 @@ def analyser_cas(donnees: dict, config: dict, n_noeuds: int, G: float,
         # Une queue décroît : les plages de pente positive sont exclues.
         queue = plage_loi_puissance(centres, densite, effectifs, r2_min=args.r2_min,
                                     pente_max=0.0)
+        grille, cumul, au_dessus = ccdf_logarithmique(fraction, args.classes + 5)
+        queue_cumul = plage_loi_puissance(grille, cumul, au_dessus, r2_min=args.r2_min,
+                                          effectif_min=EFFECTIF_MIN_CUMUL,
+                                          pente_max=PENTE_MAX_CUMUL)
     else:
         centres = densite = effectifs = np.empty(0)
+        grille = cumul = au_dessus = np.empty(0)
         queue = plage_loi_puissance(np.ones(3), np.ones(3), np.zeros(3))  # tout NaN
+        queue_cumul = dict(queue)
 
     valeurs, effectifs_l = np.unique(lignes_b.astype(int), return_counts=True)
     resume = {
@@ -341,10 +365,17 @@ def analyser_cas(donnees: dict, config: dict, n_noeuds: int, G: float,
         "queue_x_fin": queue["x_fin"],
         "queue_r2": queue["r2"],
         "queue_n_classes": queue["n_classes"],
+        "cumul_pente": queue_cumul["pente"],
+        "cumul_etendue": queue_cumul["etendue"],
+        "cumul_x_debut": queue_cumul["x_debut"],
+        "cumul_x_fin": queue_cumul["x_fin"],
+        "cumul_r2": queue_cumul["r2"],
+        "cumul_n_points": queue_cumul["n_classes"],
     }
     return {"resume": resume, "hurst": hurst, "plages": plages,
             "distribution": (valeurs, effectifs_l),
-            "queue": (centres, densite, effectifs, queue)}
+            "queue": (centres, densite, effectifs, queue),
+            "cumul": (grille, cumul, au_dessus, queue_cumul)}
 
 
 def lignes_hurst(res: dict) -> list[dict]:
@@ -551,28 +582,40 @@ def figure_cycle(fig_dir: Path, resumes: list[dict]) -> None:
 
 
 def figure_queue(fig_dir: Path, resultats: list[dict]) -> None:
+    """Densité et fréquence cumulée du délestage, avec la plage ajustée."""
     groupes: dict[int, list[dict]] = {}
     for res in resultats:
         groupes.setdefault(res["resume"]["n_noeuds"], []).append(res)
     for n, groupe in groupes.items():
         groupe.sort(key=lambda res: res["resume"]["G"])
-        fig, ax = plt.subplots(figsize=(7.0, 4.5))
+        fig, axes = plt.subplots(1, 2, figsize=(12.0, 4.6))
         couleurs = plt.cm.viridis(np.linspace(0, 0.9, len(groupe)))
         for res, c in zip(groupe, couleurs):
-            centres, densite, _, q = res["queue"]
-            if centres.size == 0:
-                continue
-            ax.loglog(centres, densite, "o", markersize=3, color=c,
-                      label=f"G = {res['resume']['G']:g}  pente {q['pente']:.2f}")
-            if q["n_classes"]:
-                x = np.array([q["x_debut"], q["x_fin"]])
-                y0 = densite[np.argmin(np.abs(centres - q["x_debut"]))]
-                ax.loglog(x, y0 * (x / x[0]) ** q["pente"], "-", color=c, linewidth=1.5)
-        ax.set_xlabel("délestage / demande")
-        ax.set_ylabel("densité de probabilité")
-        ax.set_title(f"Queue du délestage, {n} nœuds (Table I de Carreras : indice ≈ −0.5)")
-        ax.grid(alpha=0.2, which="both")
-        ax.legend(frameon=False, fontsize=7)
+            G = res["resume"]["G"]
+            for ax, cle in zip(axes, ("queue", "cumul")):
+                x, y, _, q = res[cle]
+                if x.size == 0:
+                    continue
+                ax.loglog(x, y, "o", markersize=3, color=c,
+                          label=f"G = {G:g}  pente {q['pente']:.2f}"
+                                + (f", étendue {q['etendue']:.0f}" if q["n_classes"] else ""))
+                if q["n_classes"]:
+                    xs = np.array([q["x_debut"], q["x_fin"]])
+                    y0 = y[np.argmin(np.abs(x - q["x_debut"]))]
+                    ax.loglog(xs, y0 * (xs / xs[0]) ** q["pente"], "-", color=c,
+                              linewidth=1.5)
+        for ax in axes:
+            ax.set_xlabel("délestage / demande")
+            ax.grid(alpha=0.2, which="both")
+            ax.legend(frameon=False, fontsize=7)
+        axes[0].set_ylabel("densité de probabilité")
+        axes[0].set_title("densité (pente = pente cumulée − 1)")
+        axes[1].set_ylabel("fréquence cumulée P(X ≥ x)")
+        publie = PENTE_CUMUL_PUBLIEE.get(n)
+        axes[1].set_title("fréquence cumulée"
+                          + (f" (Table I : pente {publie}, étendue {ETENDUE_PUBLIEE[n]})"
+                             if publie is not None else ""))
+        fig.suptitle(f"Queue du délestage, {n} nœuds")
         fig.tight_layout()
         sauvegarder(fig, fig_dir / f"tableI_queue_N{n}.png")
 

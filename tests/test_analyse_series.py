@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 
 from cascade_entropy.analyse_series import (
+    ccdf_logarithmique,
     echelles_log,
     pdf_logarithmique,
     pentes_depuis_courbe,
@@ -217,3 +218,33 @@ def test_queue_arguments_invalides():
         plage_loi_puissance(np.ones(3), np.ones(4), np.ones(3))
     with pytest.raises(ValueError):
         plage_loi_puissance(np.ones(5), np.ones(5), np.ones(5), r2_min=0.0)
+
+
+# --------------------------------------------------------------------------
+# Fréquence cumulée (Table I de Carreras 2004)
+# --------------------------------------------------------------------------
+
+
+def test_ccdf_logarithmique_definition():
+    x, f, n = ccdf_logarithmique(np.array([0.0, 1.0, 2.0, 2.0, 4.0]), 3)
+    np.testing.assert_allclose(x, [1.0, 2.0, 4.0])
+    np.testing.assert_allclose(f, [1.0, 0.75, 0.25])
+    np.testing.assert_array_equal(n, [4, 3, 1])
+
+
+def test_ccdf_pareto_pente_cumulee():
+    """Densité x^-(1+a) : pente cumulée −a, soit la pente de densité + 1."""
+    alpha = 0.55
+    # Pas de troncature : elle courberait la fréquence cumulée vers le bas.
+    x = np.random.default_rng(8).pareto(alpha, 300_000) + 1.0
+    grille, f, n = ccdf_logarithmique(x, 40)
+    res = plage_loi_puissance(grille, f, n, r2_min=0.99, effectif_min=50, pente_max=0.0)
+    assert res["pente"] == pytest.approx(-alpha, abs=0.07)
+    assert res["etendue"] > 100
+
+
+def test_ccdf_arguments_invalides():
+    with pytest.raises(ValueError):
+        ccdf_logarithmique(np.zeros(5))
+    with pytest.raises(ValueError):
+        ccdf_logarithmique(np.array([1.0, 2.0]), 2)

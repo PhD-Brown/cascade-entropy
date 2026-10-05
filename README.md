@@ -22,7 +22,8 @@
 </p>
 
 **Alex Baker** · Université Laval · Automne 2026  
-PHY-3202 — Projet I · Superviseur : **Patrick Desrosiers**
+PHY-3202 — Projet I · Superviseur : **Patrick Desrosiers**  
+Concept original : **Nickie Menementis**
 
 [Vue d'ensemble](#vue-densemble) · [Question scientifique](#question-scientifique) · [Modèle](#modèle) · [Résultats](#résultats-actuels) · [Architecture](#architecture-du-dépôt) · [Démarrage](#démarrage-rapide) · [Roadmap](#roadmap)
 
@@ -331,8 +332,6 @@ python -m pip install -e ".[dev]"
 python -m pytest -q
 ```
 
-> **Note :** le script de réplication Carreras utilise actuellement le package `powerlaw`, qui n'est pas encore déclaré dans `pyproject.toml`. Pour exécuter les analyses de queue : `python -m pip install powerlaw`.
-
 ### Reproduire les résultats
 
 ```bash
@@ -403,6 +402,14 @@ Le dépôt n'est pas destiné à l'exploitation d'un réseau réel : il sert à 
 ## Notebooks
 
 Quatre carnets suivent l'ordre logique du projet (fondations probabilistes, laboratoire de signaux synthétiques, modèle et évolution, analyse entropique) : voir [`notebooks/README.md`](notebooks/README.md).
+
+---
+
+## Remerciements
+
+Ce projet est réalisé sous la supervision de **Patrick Desrosiers** à
+l'Université Laval. L'idée originale à l'origine du projet a été proposée
+par **Nickie Menementis**.
 
 ---
 

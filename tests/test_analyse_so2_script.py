@@ -119,3 +119,15 @@ def test_arguments_invalides(script08, run, options):
 def test_run_introuvable(script08, run):
     with pytest.raises(SystemExit, match="introuvable"):
         script08.main(["--run", "inexistant"])
+
+
+def test_table_i_sur_frequence_cumulee(script08, run):
+    """v1.1.0 : la Table I est aussi ajustée sur la fréquence cumulée (cumul_*)."""
+    script08.main(["--run", "essai", "--melanges", "2", "--sans-figures-rs"])
+    cas = _lire(run / "sortie" / "essai" / "cas.csv")[0]
+    for cle in ("cumul_pente", "cumul_etendue", "cumul_x_debut", "cumul_x_fin",
+                "cumul_r2", "cumul_n_points"):
+        assert cle in cas
+    if cas["cumul_pente"] != "nan":
+        assert float(cas["cumul_pente"]) < script08.PENTE_MAX_CUMUL
+    assert script08.SCRIPT_VERSION == "1.1.0"
