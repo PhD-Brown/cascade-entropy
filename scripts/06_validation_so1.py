@@ -22,11 +22,17 @@ Contenu
    totale fluctuée dépasse P_C (délestage imposé par la génération, et non
    par le transport).
 
+4. Bandes ordonnées de la Fig. 10 (382 nœuds) : frontières analytiques
+   (`carreras.bandes_ordonnees`) et vérification au milieu de chaque bande
+   avec les deux règles de départage. Attendu : bande présente (aucune
+   avarie) avec « exterieur_dabord », absente avec « highs ».
+
 Sorties : data/05_reproduction_carreras/validation_so1/
     audit_figures_3_4.json
     seuils_transport.csv
     cibles_rho.csv
     commandes_mini_scan.txt
+    bandes_fig10.csv
 """
 
 from __future__ import annotations
@@ -39,13 +45,20 @@ import numpy as np
 
 from cascade_entropy.carreras import (
     GAMMA_TABLE,
+    bandes_ordonnees,
     P_G_TABLE,
     P_L_TABLE,
     configuration_arbre,
     groupes_regions,
 )
 from cascade_entropy.chemins import DOSSIER_DATA
-from cascade_entropy.dispatch import SEUIL_SATURATION, demande_uniforme, resoudre
+from cascade_entropy.cascade import journee
+from cascade_entropy.dispatch import (
+    DEPARTAGES,
+    SEUIL_SATURATION,
+    demande_uniforme,
+    resoudre,
+)
 
 
 TAILLES = (46, 94, 190, 382)
@@ -345,6 +358,39 @@ def commandes_mini_scan(cibles: list[dict]) -> list[str]:
 
 
 # ===========================================================================
+# 4. Bandes ordonnées de la Fig. 10
+# ===========================================================================
+
+def audit_bandes_fig10() -> list[dict]:
+    """
+    Pour chaque bande prédite sur le 382, simule une journée déterministe
+    (p0 = 0, p1 = 1, sans fluctuation) au milieu de la bande, avec chaque
+    règle de départage, et compte les lignes tombées.
+    """
+    cfg = configuration_arbre(382)
+    rows = []
+    for bande in bandes_ordonnees(cfg):
+        milieu = 0.5 * (bande["r_debut"] + bande["r_fin_critere"])
+        row = {
+            "arbre_equivalent": bande["equivalent_n_noeuds"],
+            "r_debut": bande["r_debut"],
+            "r_fin": bande["r_fin"],
+            "r_fin_critere": bande["r_fin_critere"],
+            "r_milieu": milieu,
+        }
+        for regle in DEPARTAGES:
+            j = journee(
+                cfg.reseau, demande_uniforme(cfg.reseau, milieu * cfg.p_c),
+                cfg.puissance_max, p0=0.0, p1=1.0, g=0.0,
+                rng=np.random.default_rng(GRAINE), limites=cfg.limites,
+                departage=regle,
+            )
+            row[f"lignes_tombees_{regle}"] = int(j.lignes_tombees.size)
+        rows.append(row)
+    return rows
+
+
+# ===========================================================================
 # Sauvegarde et affichage
 # ===========================================================================
 
@@ -408,6 +454,20 @@ def afficher_cibles(cibles: list[dict]) -> None:
     print("Si elle est grande, la taille n'est pas la seule variable qui change.")
 
 
+def afficher_bandes(rows: list[dict]) -> None:
+    print("\n" + "=" * 76)
+    print("4. BANDES ORDONNÉES DE LA FIG. 10 (382 nœuds, p1 = 1)")
+    print("=" * 76)
+    print(f"{'arbre':>6} {'r_début':>9} {'r_fin(0.99)':>12} {'milieu':>8} "
+          + " ".join(f"{'tombées ' + r:>26}" for r in DEPARTAGES))
+    for r in rows:
+        print(f"{r['arbre_equivalent']:6d} {r['r_debut']:9.4f} "
+              f"{r['r_fin_critere']:12.4f} {r['r_milieu']:8.3f} "
+              + " ".join(f"{r['lignes_tombees_' + d]:26d}" for d in DEPARTAGES))
+    print("\nBande présente = 0 ligne tombée au milieu. Frontières lues sur la")
+    print("Fig. 10 de Carreras (± 0.05) : 1.45 · 2.07–3.10 · 4.46–7.18.")
+
+
 # ===========================================================================
 # Main
 # ===========================================================================
@@ -435,6 +495,10 @@ def main() -> None:
     (DOSSIER_SORTIE / "commandes_mini_scan.txt").write_text(
         "\n".join(commandes) + "\n", encoding="utf-8"
     )
+
+    bandes = audit_bandes_fig10()
+    afficher_bandes(bandes)
+    ecrire_csv(DOSSIER_SORTIE / "bandes_fig10.csv", bandes)
 
     print("\n" + "=" * 76)
     print("COMMANDES DU MINI-SCAN (à ne lancer qu'après lecture des tableaux)")

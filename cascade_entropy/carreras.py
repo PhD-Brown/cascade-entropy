@@ -59,6 +59,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .dispatch import SEUIL_SATURATION
 from .reseau import Reseau, arbre, limites_par_niveau
 
 
@@ -319,3 +320,79 @@ def sigma_relatif_papier(
     if n_regions < 1:
         raise ValueError("n_regions doit être >= 1.")
     return float((gamma - 1.0) / (2.0 * np.sqrt(n_regions)))
+
+
+def bandes_ordonnees(configuration: ConfigurationCarreras) -> list[dict]:
+    """
+    Frontières analytiques des bandes ordonnées de la Fig. 10 (Carreras 2002).
+
+    Hypothèse : le délestage vide les couronnes extérieures en premier
+    (`departage="exterieur_dabord"`), comme le décrit Carreras : « it reaches a
+    point at which all the loads on the outermost ring of the system are blacked
+    out. At this point the system behaves as a tree network with 192 nodes ».
+
+    Pour chaque profondeur de troncature D (niveau_max, niveau_max − 1, …, 4),
+    le réseau se comporte comme l'arbre restreint aux niveaux <= D :
+
+    - début de bande : la génération étant saturée (r > 1), seules N_L / r
+      charges sont servies ; toutes les charges plus profondes que D sont
+      coupées dès que N_L / r <= N_L(D), soit
+          r_debut(D) = N_L / N_L(D)        (= 1 pour l'arbre complet) ;
+    - fin de bande : seuil de transport de l'arbre restreint, même formule
+      que r_T(N) mais en ne comptant que les charges de niveau <= D en aval :
+          r_fin(D) = min_l  F_l^max N_L / (n_l(D) P_C),
+      sur les lignes extérieures (niveau > 3) de l'arbre restreint.
+
+    Une bande n'existe que si r_debut < r_fin. Ces valeurs ne dépendent que de
+    la Table I : aucun paramètre n'est ajusté.
+
+    Retourne une liste de dicts : profondeur, n_charges_servies, r_debut,
+    r_fin, r_fin_critere (= SEUIL_SATURATION × r_fin, seuil effectivement vu
+    par la cascade) et equivalent_n_noeuds (taille de l'arbre restreint).
+    """
+    reseau = configuration.reseau
+    if reseau.niveaux is None:
+        raise ValueError("Le réseau doit contenir ses niveaux hiérarchiques.")
+
+    niveaux = np.asarray(reseau.niveaux, dtype=int)
+    enfants = reseau.lignes[:, 1].astype(int)
+    niveau_ligne = niveaux[enfants]
+
+    parent = np.full(reseau.n_noeuds, -1, dtype=int)
+    for a, b in reseau.lignes:
+        parent[int(b)] = int(a)
+
+    est_charge = np.zeros(reseau.n_noeuds, dtype=bool)
+    est_charge[reseau.charges] = True
+    n_l = int(est_charge.sum())
+
+    bandes = []
+    for profondeur in range(int(niveaux.max()), 3, -1):
+        # Charges conservées et, pour chaque nœud, nombre de ces charges en aval.
+        garde = est_charge & (niveaux <= profondeur)
+        en_aval = garde.astype(int)
+        for noeud in np.argsort(-niveaux, kind="stable"):
+            if parent[noeud] >= 0:
+                en_aval[parent[noeud]] += en_aval[noeud]
+
+        n_servies = int(garde.sum())
+        r_debut = n_l / n_servies
+
+        masque = (niveau_ligne > 3) & (niveau_ligne <= profondeur)
+        charges_ligne = en_aval[enfants[masque]]
+        r_lignes = (
+            configuration.limites[masque] * n_l
+            / (charges_ligne * configuration.p_c)
+        )
+        r_fin = float(r_lignes.min())
+
+        if r_debut < r_fin:
+            bandes.append({
+                "profondeur": profondeur,
+                "equivalent_n_noeuds": int(3 * 2 ** profondeur - 2),
+                "n_charges_servies": n_servies,
+                "r_debut": float(r_debut),
+                "r_fin": r_fin,
+                "r_fin_critere": SEUIL_SATURATION * r_fin,
+            })
+    return bandes

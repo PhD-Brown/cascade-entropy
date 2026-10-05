@@ -139,7 +139,7 @@ from pathlib import Path
 import numpy as np
 
 from .cascade import Journee, journee
-from .dispatch import demande_uniforme
+from .dispatch import DEPARTAGE_HIGHS, demande_uniforme, valider_departage
 from .entropie import nombre_effectif
 from .reseau import Reseau, capacite_incidente
 
@@ -157,7 +157,9 @@ class Parametres:
 
     Les champs `marge_seuil` et `mu` n'ont pas de valeur par défaut : ce sont les
     paramètres expérimentaux de la dynamique, obligatoires en mode auto_organise
-    et ignorés en mode independant, comme `lambda_` et `k`. `limites` vaut par
+    et ignorés en mode independant, comme `lambda_` et `k`. `departage`
+    (``"highs"`` par défaut, ou ``"exterieur_dabord"``) est transmis à chaque
+    `journee()` : voir `dispatch` pour sa signification. `limites` vaut par
     défaut `reseau.limites`. Les tableaux fournis ne sont jamais modifiés : la
     simulation travaille sur des copies.
     """
@@ -173,6 +175,7 @@ class Parametres:
     k: float = 0.02
     marge_seuil: float | None = None
     mu: float | None = None
+    departage: str = DEPARTAGE_HIGHS
 
 
 @dataclass
@@ -240,6 +243,7 @@ def _verifier(reseau: Reseau, n_jours, parametres: Parametres) -> None:
         raise ValueError("n_jours doit être un entier >= 1.")
     if parametres.mode not in MODES:
         raise ValueError(f"mode doit être l'un de {MODES}.")
+    valider_departage(parametres.departage)
     _reel(parametres.demande_initiale, "demande_initiale", minimum=0.0, strict=True)
 
     puissance_max = np.asarray(parametres.puissance_max, dtype=float)
@@ -355,7 +359,7 @@ def simuler(reseau: Reseau, n_jours: int, parametres: Parametres,
                           if auto else demande_initiale)
         resultat = journee(reseau, demande_uniforme(reseau, demande_totale),
                            puissance_max, parametres.p0, parametres.p1, parametres.g,
-                           rng, limites=limites)
+                           rng, limites=limites, departage=parametres.departage)
         jour = _observer(t, resultat)
 
         if auto:

@@ -48,12 +48,24 @@ Autre taille, pour audit uniquement :
 
     python scripts/05_diagnostics_carreras.py --taille 190
 
+Départage du délestage (option ; défaut historique « highs ») :
+
+    python scripts/05_diagnostics_carreras.py --departage exterieur_dabord
+
+    Les sorties vont alors dans des dossiers suffixés
+    `deterministe_exterieur_dabord/`, sans jamais écraser celles de HiGHS, ce
+    qui permet de comparer les deux règles figure par figure.
+
 Important
 ---------
 - Le balayage principal n'a AUCUNE fluctuation de demande.
 - p0=0.
 - p1=1 pour les figures 3-10, comme dans la discussion déterministe de
   Carreras autour des figures 9-11.
+- `--departage` choisit parmi les dispatchs de même coût lorsqu'il faut
+  délester (voir `cascade_entropy.dispatch`). Avec « exterieur_dabord »,
+  l'audit vérifie aussi les frontières analytiques des bandes ordonnées de la
+  Fig. 10 (arbres équivalents de 190 et 94 nœuds).
 - Pour les lignes tombées, M_ij n'est pas physiquement défini dans notre
   représentation numérique (réactance et limite artificiellement dégradées).
   On conserve donc deux matrices :
@@ -76,14 +88,36 @@ import numpy as np
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
-from cascade_entropy.carreras import P_G_TABLE, configuration_arbre
+from cascade_entropy.carreras import (
+    P_G_TABLE,
+    bandes_ordonnees,
+    configuration_arbre,
+)
 from cascade_entropy.cascade import journee
 from cascade_entropy.chemins import DOSSIER_DATA, DOSSIER_FIGURES
-from cascade_entropy.dispatch import SEUIL_SATURATION, demande_uniforme
+from cascade_entropy.dispatch import (
+    DEPARTAGE_HIGHS,
+    DEPARTAGES,
+    SEUIL_SATURATION,
+    demande_uniforme,
+)
 
 
 DOSSIER_DATA_DET = DOSSIER_DATA / "05_reproduction_carreras" / "deterministe"
 DOSSIER_FIG_DET = DOSSIER_FIGURES / "05_reproduction_carreras" / "deterministe"
+
+
+def _dossiers_sortie(departage: str) -> tuple[Path, Path]:
+    """
+    Dossiers de sortie selon la règle de départage.
+
+    HiGHS garde les dossiers historiques ; toute autre règle écrit dans des
+    dossiers suffixés, pour que les deux jeux de figures coexistent.
+    """
+    base_data = DOSSIER_DATA / "05_reproduction_carreras"
+    base_fig = DOSSIER_FIGURES / "05_reproduction_carreras"
+    nom = "deterministe" if departage == DEPARTAGE_HIGHS else f"deterministe_{departage}"
+    return base_data / nom, base_fig / nom
 
 GRAINE_DEFAUT = 20261005
 RATIOS_CIBLES = (0.30, 1.04, 1.45, 1.73)
@@ -134,9 +168,18 @@ def _ecrire_csv(path: Path, rows: list[dict]) -> None:
 
 
 def _sauvegarder(fig, nom: str) -> None:
+    """
+    Sauvegarde PNG + PDF. Sous Windows, un fichier ouvert dans un lecteur
+    (VS Code, navigateur, Acrobat) est verrouillé en écriture : on le signale
+    au lieu d'interrompre tout le run.
+    """
     DOSSIER_FIG_DET.mkdir(parents=True, exist_ok=True)
-    fig.savefig(DOSSIER_FIG_DET / f"{nom}.png", dpi=190, bbox_inches="tight")
-    fig.savefig(DOSSIER_FIG_DET / f"{nom}.pdf", bbox_inches="tight")
+    for ext, options in (("png", {"dpi": 190}), ("pdf", {})):
+        chemin = DOSSIER_FIG_DET / f"{nom}.{ext}"
+        try:
+            fig.savefig(chemin, bbox_inches="tight", **options)
+        except PermissionError:
+            print(f"  ATTENTION : {chemin.name} est ouvert ailleurs, non mis à jour.")
     plt.close(fig)
 
 
@@ -163,7 +206,8 @@ def _ligne_exterieure_generateurs(reseau) -> np.ndarray:
     return _niveau_lignes(reseau) > 3
 
 
-def simuler_point(cfg, ratio: float, *, p1: float, graine: int):
+def simuler_point(cfg, ratio: float, *, p1: float, graine: int,
+                  departage: str = DEPARTAGE_HIGHS):
     """
     Une réalisation à demande uniforme, sans fluctuation et sans avarie p0.
 
@@ -180,6 +224,7 @@ def simuler_point(cfg, ratio: float, *, p1: float, graine: int):
         g=0.0,
         rng=np.random.default_rng(graine),
         limites=cfg.limites,
+        departage=departage,
     )
 
 
@@ -282,7 +327,8 @@ def _mesures_point(cfg, ratio: float, resultat) -> tuple[dict, dict[str, np.ndar
     return row, arrays
 
 
-def balayer(cfg, ratios: np.ndarray, *, p1: float, graine: int):
+def balayer(cfg, ratios: np.ndarray, *, p1: float, graine: int,
+            departage: str = DEPARTAGE_HIGHS):
     """
     Balaye P_D/P_C et conserve TOUTES les grandeurs utiles à Carreras.
 
@@ -296,7 +342,8 @@ def balayer(cfg, ratios: np.ndarray, *, p1: float, graine: int):
 
     for i, (ratio, seq) in enumerate(zip(ratios, graines), 1):
         seed_i = int(seq.generate_state(1, dtype=np.uint64)[0])
-        resultat = simuler_point(cfg, float(ratio), p1=p1, graine=seed_i)
+        resultat = simuler_point(cfg, float(ratio), p1=p1, graine=seed_i,
+                                 departage=departage)
         row, arrays = _mesures_point(cfg, float(ratio), resultat)
         rows.append(row)
 
@@ -494,20 +541,32 @@ def figure_transitions(ratios, rows, taille: int) -> None:
     _sauvegarder(fig, f"05_carreras_fig05_transitions_{taille}")
 
 
-def figure_carte(ratios, arrays, numero: int, nom: str, titre: str) -> None:
+def figure_carte(ratios, arrays, numero: int, nom: str, titre: str,
+                 r_min_affiche: float | None = None) -> None:
+    """
+    Carte M_ij(ligne, P_D/P_C), Fig. 9-10.
+
+    pcolormesh place chaque ligne de la carte à son vrai ratio. imshow avec
+    `extent` supposait une grille régulière : les ratios témoins ajoutés hors
+    grille (0.30, Table I) décalaient tout l'axe vertical.
+    """
     m = arrays["M_final_carreras"]
+    ratios = np.asarray(ratios, dtype=float)
+    garder = np.ones(ratios.size, dtype=bool)
+    if r_min_affiche is not None:
+        garder = ratios >= r_min_affiche - 1e-12
+    r = ratios[garder]
+    m = m[garder]
+
+    milieux = 0.5 * (r[1:] + r[:-1])
+    bords_y = np.concatenate([[r[0] - (milieux[0] - r[0])], milieux,
+                              [r[-1] + (r[-1] - milieux[-1])]])
+    bords_x = np.arange(m.shape[1] + 1) - 0.5
 
     fig, ax = plt.subplots(figsize=(8.4, 5.0))
-    im = ax.imshow(
-        m,
-        aspect="auto",
-        interpolation="nearest",
-        cmap="Greys",
-        vmin=0.0,
-        vmax=1.0,
-        extent=[0, m.shape[1] - 1, ratios[-1], ratios[0]],
-        origin="upper",
-    )
+    im = ax.pcolormesh(bords_x, bords_y, m, cmap="Greys", vmin=0.0, vmax=1.0,
+                       shading="flat", rasterized=True)
+    ax.set_ylim(bords_y[-1], bords_y[0])
     ax.set_xlabel("numéro de ligne")
     ax.set_ylabel(r"$P_D/P_C$")
     ax.set_title(titre)
@@ -517,12 +576,79 @@ def figure_carte(ratios, arrays, numero: int, nom: str, titre: str) -> None:
     _sauvegarder(fig, f"05_carreras_fig{numero:02d}_{nom}")
 
 
+def audit_bandes(cfg, ratios, rows) -> list[dict]:
+    """
+    Compare les bandes ordonnées de la Fig. 10 à leur prédiction analytique.
+
+    Une bande ordonnée est une plage de ratios où la cascade déterministe
+    (p1 = 1) ne fait tomber AUCUNE ligne. Pour chaque bande prédite par
+    `carreras.bandes_ordonnees()` dont le milieu est dans le balayage, on
+    cherche la plage contiguë de ratios sans avarie qui contient ce milieu.
+
+    - Si le milieu présente des avaries, la bande est déclarée absente :
+      c'est le comportement attendu avec le départage « highs ».
+    - Sinon, on rapporte les bornes mesurées. La fin mesurée se compare à
+      `r_fin_critere` (saturation à 0.99), le début à `r_debut`. La précision
+      est limitée par le pas du balayage ; une borne qui coïncide avec le bord
+      du balayage est signalée comme tronquée.
+    """
+    ratios = np.asarray(ratios, dtype=float)
+    sans_avarie = np.array([r["n_lignes_tombees"] == 0 for r in rows])
+    pas = float(np.median(np.diff(ratios))) if ratios.size > 1 else float("nan")
+
+    resultats = []
+    for bande in bandes_ordonnees(cfg):
+        milieu = 0.5 * (bande["r_debut"] + bande["r_fin_critere"])
+        if not ratios[0] <= milieu <= ratios[-1]:
+            continue
+        i = _index_ratio(ratios, milieu)
+        entree = dict(bande)
+        entree["pas_balayage"] = pas
+        if not sans_avarie[i]:
+            entree.update(presente=False, r_debut_mesure=None,
+                          r_fin_mesure=None, debut_tronque=False,
+                          fin_tronquee=False)
+        else:
+            a = i
+            while a > 0 and sans_avarie[a - 1]:
+                a -= 1
+            b = i
+            while b < ratios.size - 1 and sans_avarie[b + 1]:
+                b += 1
+            entree.update(
+                presente=True,
+                r_debut_mesure=float(ratios[a]),
+                r_fin_mesure=float(ratios[b]),
+                debut_tronque=bool(a == 0),
+                fin_tronquee=bool(b == ratios.size - 1),
+            )
+        resultats.append(entree)
+    return resultats
+
+
+def _afficher_bandes(bandes: list[dict]) -> None:
+    print("\n=== Bandes ordonnées de la Fig. 10 (prédiction analytique) ===")
+    if not bandes:
+        print("aucune bande prédite dans la plage balayée")
+        return
+    for b in bandes:
+        tete = (f"arbre équivalent {b['equivalent_n_noeuds']:3d} nœuds | "
+                f"prédit [{b['r_debut']:.3f}, {b['r_fin_critere']:.3f}]")
+        if not b["presente"]:
+            print(f"{tete} | mesuré : ABSENTE (avaries au milieu de la bande)")
+            continue
+        debut = f"{b['r_debut_mesure']:.3f}" + (" (bord du balayage)" if b["debut_tronque"] else "")
+        fin = f"{b['r_fin_mesure']:.3f}" + (" (bord du balayage)" if b["fin_tronquee"] else "")
+        print(f"{tete} | mesuré [{debut}, {fin}] | pas {b['pas_balayage']:.3f}")
+
+
 def sensibilite_p1(
     cfg,
     ratios: np.ndarray,
     valeurs_p1: tuple[float, ...],
     repetitions: int,
     graine: int,
+    departage: str = DEPARTAGE_HIGHS,
 ):
     """
     Sensibilité de la transition au paramètre p1.
@@ -546,7 +672,8 @@ def sensibilite_p1(
             for _ in range(nrep):
                 seed_i = int(graines[k].generate_state(1, dtype=np.uint64)[0])
                 k += 1
-                res = simuler_point(cfg, float(ratio), p1=p1, graine=seed_i)
+                res = simuler_point(cfg, float(ratio), p1=p1, graine=seed_i,
+                                    departage=departage)
                 pd = float(res.demande.sum())
                 valeurs.append(res.delestage_total / pd if pd > 0 else 0.0)
                 outages.append(res.lignes_tombees.size)
@@ -602,6 +729,7 @@ def _metadata(args, cfg, audit: AuditDeterministe) -> dict:
         "p0_scan_deterministe": 0.0,
         "p1_figures_3_a_10": 1.0,
         "fluctuation_demande": "aucune; demande uniforme, facteur Carreras gamma=1",
+        "departage": args.departage,
         "ratio_min": args.ratio_min,
         "ratio_max": args.ratio_max,
         "pas": args.pas,
@@ -649,6 +777,16 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--pas-etendu", type=float, default=0.02)
 
     p.add_argument("--graine", type=int, default=GRAINE_DEFAUT)
+    p.add_argument(
+        "--departage",
+        choices=list(DEPARTAGES),
+        default=DEPARTAGE_HIGHS,
+        help=(
+            "Choix parmi les dispatchs de même coût lorsqu'il faut délester : "
+            "'highs' (défaut, historique) ou 'exterieur_dabord' (charges les "
+            "plus extérieures délestées en premier, récit de Carreras 2002)."
+        ),
+    )
 
     p.add_argument(
         "--p1",
@@ -679,6 +817,9 @@ def main() -> None:
     if any(not 0.0 <= p1 <= 1.0 for p1 in args.p1):
         raise SystemExit("Toutes les valeurs de --p1 doivent être dans [0,1].")
 
+    global DOSSIER_DATA_DET, DOSSIER_FIG_DET
+    DOSSIER_DATA_DET, DOSSIER_FIG_DET = _dossiers_sortie(args.departage)
+
     cfg = configuration_arbre(args.taille)
     DOSSIER_DATA_DET.mkdir(parents=True, exist_ok=True)
     DOSSIER_FIG_DET.mkdir(parents=True, exist_ok=True)
@@ -692,6 +833,7 @@ def main() -> None:
     print("p0            : 0")
     print("p1 (Fig.3-10) : 1")
     print("fluctuations  : aucune")
+    print(f"départage     : {args.departage}")
     print()
 
     # ------------------------------------------------------------------
@@ -710,7 +852,7 @@ def main() -> None:
 
     print("--- Balayage principal ---")
     rows, arrays = balayer(
-        cfg, ratios, p1=1.0, graine=args.graine
+        cfg, ratios, p1=1.0, graine=args.graine, departage=args.departage
     )
 
     _ecrire_csv(DOSSIER_DATA_DET / f"scan_{args.taille}.csv", rows)
@@ -754,7 +896,8 @@ def main() -> None:
     )
     figure_carte(
         ratios, arrays, 9, "carte_M",
-        "Structure des solutions autour de la seconde transition"
+        "Structure des solutions autour de la seconde transition",
+        r_min_affiche=args.ratio_min,
     )
 
     # ------------------------------------------------------------------
@@ -765,7 +908,8 @@ def main() -> None:
         args.ratio_min_etendu, args.ratio_max_etendu, args.pas_etendu
     )
     rows_ext, arrays_ext = balayer(
-        cfg, ratios_ext, p1=1.0, graine=args.graine + 1
+        cfg, ratios_ext, p1=1.0, graine=args.graine + 1,
+        departage=args.departage,
     )
     _ecrire_csv(
         DOSSIER_DATA_DET / f"scan_etendu_{args.taille}.csv",
@@ -779,6 +923,7 @@ def main() -> None:
         ratios_ext, arrays_ext, 10, "carte_M_etendue",
         "Alternance des bandes de solutions sur une plage étendue"
     )
+    bandes = audit_bandes(cfg, ratios_ext, rows_ext)
 
     # ------------------------------------------------------------------
     # Sensibilité p1 : Fig. 11.
@@ -792,6 +937,7 @@ def main() -> None:
             valeurs_p1,
             repetitions=args.repetitions_p1,
             graine=args.graine + 2,
+            departage=args.departage,
         )
         _ecrire_csv(
             DOSSIER_DATA_DET / f"sensibilite_p1_{args.taille}.csv",
@@ -817,6 +963,7 @@ def main() -> None:
         "generateurs_sous_1pct": int(np.sum(frac_tab <= 0.01)),
     }
     meta["audit_table_I"] = audit_table
+    meta["audit_bandes_fig10"] = bandes
     (DOSSIER_DATA_DET / f"metadata_deterministe_{args.taille}.json").write_text(
         json.dumps(meta, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
@@ -856,6 +1003,8 @@ def main() -> None:
         f"r={audit.ratio_plus_grand_saut_shed}, "
         f"Δ={audit.taille_plus_grand_saut_shed}"
     )
+
+    _afficher_bandes(bandes)
 
     print(f"\nDonnées : {DOSSIER_DATA_DET}")
     print(f"Figures : {DOSSIER_FIG_DET}")

@@ -81,6 +81,14 @@ Reprendre un run interrompu :
 
 Lister les runs :
     python scripts/05_reproduction_carreras.py runs
+
+Départage du délestage (option, défaut historique 'highs') :
+    python scripts/05_reproduction_carreras.py scan \
+        --tailles 382 --ratios 0.760678 0.794908 \
+        --n 1000 --chunk-size 100 --workers 8 \
+        --departage exterieur_dabord --run-id rho-N382-ext
+
+    La règle est enregistrée dans metadata.json et reprise par --resume.
 """
 
 from __future__ import annotations
@@ -132,11 +140,16 @@ from cascade_entropy.carreras import (  # noqa: E402
 )
 from cascade_entropy.cascade import journee  # noqa: E402
 from cascade_entropy.chemins import DOSSIER_DATA, DOSSIER_FIGURES  # noqa: E402
-from cascade_entropy.dispatch import demande_uniforme, resoudre  # noqa: E402
+from cascade_entropy.dispatch import (  # noqa: E402
+    DEPARTAGE_HIGHS,
+    DEPARTAGES,
+    demande_uniforme,
+    resoudre,
+)
 from cascade_entropy.reseau import matrice_de_flux  # noqa: E402
 
 
-SCRIPT_VERSION = "2.0.0"
+SCRIPT_VERSION = "2.1.0"  # 2.1 : option --departage
 
 DOSSIER_BASE = DOSSIER_DATA / "05_reproduction_carreras"
 DOSSIER_RUNS = DOSSIER_BASE / "runs"
@@ -365,6 +378,7 @@ def construire_config(commande: str, args: argparse.Namespace) -> dict:
         "p0": float(args.p0),
         "p1": float(args.p1),
         "n_regions": int(args.n_regions),
+        "departage": str(args.departage),
         "min_tail": int(getattr(args, "min_tail", 100)),
         "P_G_par_generateur": float(P_G_TABLE),
         "N_G": 12,
@@ -389,6 +403,11 @@ def construire_config(commande: str, args: argparse.Namespace) -> dict:
                 "les bornes seules sont publiees",
             "limites":
                 "Table I exactes, aucune recalibration par taille",
+            "departage":
+                "highs = choix du solveur parmi les optima de meme cout; "
+                "exterieur_dabord = a puissance servie egale, delestage des "
+                "charges les plus exterieures en premier (hypothese de "
+                "replication, Carreras 2002 Sec. IV et Fig. 10)",
             "observable_principale":
                 "fraction_delestee_nominale = "
                 "P_shed / (ratio_PD_PC * P_C)",
@@ -465,6 +484,8 @@ def ouvrir_resume(
     args.p0 = float(config["p0"])
     args.p1 = float(config["p1"])
     args.n_regions = int(config["n_regions"])
+    # Les runs antérieurs à la version 2.1 ont tous été faits avec HiGHS.
+    args.departage = str(config.get("departage", DEPARTAGE_HIGHS))
 
     if commande == "scan":
         args.ratios = list(config["ratios_scan"])
@@ -572,12 +593,15 @@ def simuler_bloc(
     n_regions: int,
     p0: float,
     p1: float,
+    departage: str = DEPARTAGE_HIGHS,
 ) -> dict[str, np.ndarray]:
     """
     Simule `n` réalisations i.i.d. avec fluctuations régionales.
 
     `journee()` reçoit g=0 car la fluctuation est déjà appliquée par
-    `demande_regionale()`.
+    `demande_regionale()`. `departage` est transmis tel quel à `journee()` ;
+    il ne consomme aucun tirage, donc à graine égale les deux règles voient
+    exactement les mêmes demandes et les mêmes avaries p0.
     """
     cfg = configuration_arbre(n_noeuds)
     rng = np.random.default_rng(graine)
@@ -611,6 +635,7 @@ def simuler_bloc(
             g=0.0,
             rng=rng,
             limites=cfg.limites,
+            departage=departage,
         )
 
         pd_reel = float(resultat.demande.sum())
@@ -812,6 +837,7 @@ def worker_bloc(
     n_regions: int,
     p0: float,
     p1: float,
+    departage: str = DEPARTAGE_HIGHS,
 ) -> tuple[int, float, int, dict[str, np.ndarray]]:
     series = simuler_bloc(
         n_noeuds,
@@ -822,6 +848,7 @@ def worker_bloc(
         n_regions=n_regions,
         p0=p0,
         p1=p1,
+        departage=departage,
     )
     return n_noeuds, ratio, index_bloc, series
 
@@ -874,6 +901,7 @@ def commande_audit(args: argparse.Namespace) -> None:
     print(f"p0                   : {args.p0:g}")
     print(f"p1 (hypothèse)       : {args.p1:g}")
     print(f"N_F                  : {args.n_regions} (choix explicite)")
+    print(f"départage            : {args.departage}")
 
     for n_noeuds in args.tailles:
         cfg = configuration_arbre(n_noeuds)
@@ -1494,6 +1522,7 @@ def commande_scan(args: argparse.Namespace) -> None:
                 args.n_regions,
                 args.p0,
                 args.p1,
+                args.departage,
             ))
 
     # Les cas déjà complets sont immédiatement réécrits dans scan.csv.
@@ -1925,6 +1954,7 @@ def commande_production(
                 args.n_regions,
                 args.p0,
                 args.p1,
+                args.departage,
             ))
 
     if taches:
@@ -2081,6 +2111,7 @@ def commande_production(
             p0=np.array(args.p0),
             p1=np.array(args.p1),
             n_regions=np.array(args.n_regions),
+            departage=np.array(args.departage),
         )
 
         journaliser(
@@ -2199,6 +2230,18 @@ def ajouter_communs(
         type=int,
         choices=[1, 3],
         default=3,
+    )
+    p.add_argument(
+        "--departage",
+        choices=list(DEPARTAGES),
+        default=DEPARTAGE_HIGHS,
+        help=(
+            "Choix parmi les dispatchs de même coût lorsqu'il faut délester. "
+            "'highs' (défaut, historique) : choix du solveur. "
+            "'exterieur_dabord' : les charges les plus extérieures sont "
+            "délestées en premier (récit de Carreras 2002). "
+            "Ignoré avec --resume : la valeur du run d'origine est reprise."
+        ),
     )
 
 

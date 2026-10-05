@@ -26,6 +26,31 @@ de sa limite. Une ligne peut au mieux être saturée, c'est-à-dire collée cont
 contrainte. C'est cette saturation, et non un dépassement, qui déclenchera
 l'avarie dans le module `cascade`.
 
+Départage des optima dégénérés
+------------------------------
+Toutes les charges ont la même priorité dans le coût : dès qu'un délestage est
+nécessaire, des solutions différentes ont exactement le même coût optimal
+(couper la charge A ou la charge B revient au même). Le paramètre `departage`
+de `resoudre()` choisit explicitement parmi ces optima :
+
+- ``"highs"`` (défaut) : la solution que renvoie le solveur HiGHS, sans règle
+  de sélection. Comportement historique du projet, inchangé.
+- ``"exterieur_dabord"`` : programme linéaire en deux étapes.
+  1. Le problème ci-dessus donne la puissance servie maximale S*.
+  2. À puissance servie fixée (S >= S* − tolérance), on maximise
+     sum_j w_j L_j, où w_j décroît avec la profondeur topologique du nœud
+     (`Reseau.niveaux`) : les charges les plus extérieures sont délestées
+     en premier.
+  La puissance servie, donc le coût physique, est identique à celle de
+  ``"highs"`` ; seule change la localisation du délestage. C'est la règle qui
+  reproduit le récit de Carreras et al. (2002) : « The nodes in the outermost
+  ring of the network are progressively blacked out », et les bandes ordonnées
+  de leur Fig. 10. C'est une hypothèse de réplication, pas une loi physique.
+
+Au sein d'un même niveau, les charges sont physiquement équivalentes ; un petit
+terme de rang (voir `priorites_exterieur_dabord`) coupe d'abord les indices les
+plus élevés. L'optimum devient unique et ne dépend plus du solveur.
+
 Critères de validation : sur un réseau réduit résolu à la main, les flux doivent
 coïncider ; à faible charge, la solution ne doit comporter ni délestage ni ligne
 saturée ; au-delà de la capacité totale de production, le délestage doit égaler
@@ -43,6 +68,15 @@ from .reseau import Reseau, matrice_de_flux
 
 POIDS_DELESTAGE = 100.0
 SEUIL_SATURATION = 0.99
+
+DEPARTAGE_HIGHS = "highs"
+DEPARTAGE_EXTERIEUR_DABORD = "exterieur_dabord"
+DEPARTAGES = (DEPARTAGE_HIGHS, DEPARTAGE_EXTERIEUR_DABORD)
+
+# Tolérance relative sur la puissance servie entre les deux étapes du départage.
+# Elle doit rester au-dessus de la tolérance de faisabilité de HiGHS (~1e-7 en
+# absolu) tout en étant négligeable devant toute charge physique.
+TOLERANCE_SERVIE = 1e-9
 
 
 @dataclass
@@ -63,6 +97,7 @@ class Solution:
     flux: np.ndarray
     taux_de_charge: np.ndarray
     cout: float
+    departage: str = DEPARTAGE_HIGHS
 
     @property
     def delestage_total(self) -> float:
@@ -110,6 +145,87 @@ def _matrices(reseau: Reseau, A: np.ndarray | None):
     return A, selection, A @ selection[autres], n_g, n_c
 
 
+def valider_departage(departage) -> str:
+    """
+    Vérifie le nom de la règle de départage et le renvoie.
+
+    Refuse tout ce qui n'est pas exactement l'une des chaînes de `DEPARTAGES`,
+    pour qu'une faute de frappe ne retombe jamais silencieusement sur HiGHS.
+    """
+    if not isinstance(departage, str) or departage not in DEPARTAGES:
+        raise ValueError(
+            f"departage doit être l'une des valeurs {DEPARTAGES}, "
+            f"pas {departage!r}."
+        )
+    return departage
+
+
+def priorites_exterieur_dabord(reseau: Reseau) -> np.ndarray:
+    """
+    Poids de service w_j de chaque charge pour la règle ``"exterieur_dabord"``.
+
+        w_j = 1 + (niveau_max − niveau_j) + 0.5 × (1 − rang_j / n_niveau)
+
+    - Terme entier : chaque niveau plus proche de la racine vaut une unité de
+      plus. Maximiser sum_j w_j L_j à puissance servie fixée sert donc les
+      charges intérieures en premier et coupe les extérieures en premier.
+    - Terme de rang, < 0.5 : au sein d'un niveau, la charge de plus petit
+      indice de nœud est servie en premier, donc les indices les plus élevés
+      sont coupés en premier. Il ne peut jamais inverser l'ordre des niveaux.
+      Il rend l'optimum unique (plus aucune dépendance au solveur) et donne
+      des fronts de délestage contigus, orientés comme dans les Fig. 9-10 de
+      Carreras (front partant des numéros de ligne les plus élevés). Ce
+      terme est un choix d'étiquetage : dans un arbre symétrique, toutes les
+      charges d'un même niveau sont physiquement équivalentes.
+
+    Exige `reseau.niveaux` (fourni par `reseau.arbre()`). Un réseau sans niveaux
+    n'a pas de notion d'« extérieur » définie : on refuse plutôt que d'en
+    inventer une.
+    """
+    if reseau.niveaux is None:
+        raise ValueError(
+            "Le départage 'exterieur_dabord' exige reseau.niveaux "
+            "(réseau construit par reseau.arbre())."
+        )
+    noeuds = np.asarray(reseau.charges)
+    niveaux = np.asarray(reseau.niveaux, dtype=float)[noeuds]
+    poids = 1.0 + (niveaux.max() - niveaux)
+    for niveau in np.unique(niveaux):
+        dans = np.flatnonzero(niveaux == niveau)
+        rang = np.argsort(np.argsort(noeuds[dans], kind="stable"), kind="stable")
+        poids[dans] += 0.5 * (1.0 - rang / dans.size)
+    return poids
+
+
+def _solution(reseau: Reseau, x: np.ndarray, flux_par_variable: np.ndarray,
+              demande: np.ndarray, limites: np.ndarray, n_g: int,
+              poids_delestage: float, departage: str) -> Solution:
+    """Construit la `Solution` à partir du vecteur de décision optimal."""
+    production = x[:n_g]
+    charge_servie = x[n_g:]
+
+    # On reconstruit les injections au format attendu par le module réseau.
+    injections = np.zeros(reseau.n_noeuds)
+    injections[reseau.generateurs] = production
+    injections[reseau.charges] = -charge_servie
+
+    # Le flux est simplement la matrice de transfert appliquée au vecteur de décision.
+    flux = flux_par_variable @ x
+
+    return Solution(
+        injections=injections,
+        production=production,
+        charge_servie=charge_servie,
+        delestage=demande - charge_servie,
+        flux=flux,
+        taux_de_charge=np.abs(flux) / limites,
+        # Coût physique (étape 1), recalculé sur la solution retenue : il est
+        # identique pour les deux règles de départage, à la tolérance près.
+        cout=float(production.sum() - poids_delestage * charge_servie.sum()),
+        departage=departage,
+    )
+
+
 def resoudre(
     reseau: Reseau,
     demande: np.ndarray,
@@ -117,6 +233,7 @@ def resoudre(
     puissance_max: np.ndarray | None = None,
     poids_delestage: float = POIDS_DELESTAGE,
     A: np.ndarray | None = None,
+    departage: str = DEPARTAGE_HIGHS,
 ) -> Solution:
     """
     Résout le dispatch pour une demande donnée.
@@ -131,7 +248,14 @@ def resoudre(
 
     L'algorithme est un programme linéaire, ce qui est parfaitement adapté ici
     puisque les contraintes sont affines et la fonction objectif est linéaire.
+
+    `departage` choisit parmi les optima de même coût lorsqu'un délestage est
+    nécessaire (voir la docstring du module) :
+    ``"highs"`` (défaut, historique) ou ``"exterieur_dabord"``. Sans délestage,
+    les deux règles renvoient exactement la même solution : la seconde étape
+    n'est alors pas exécutée.
     """
+    departage = valider_departage(departage)
     demande = np.asarray(demande, dtype=float)
     if demande.shape != reseau.charges.shape:
         raise ValueError("Une valeur de demande par nœud de charge est requise.")
@@ -169,27 +293,33 @@ def resoudre(
                        bounds=bornes, method="highs")
     if not resultat.success:
         raise RuntimeError(f"Le dispatch a échoué : {resultat.message}")
+    x = resultat.x
 
-    production = resultat.x[:n_g]
-    charge_servie = resultat.x[n_g:]
+    if departage == DEPARTAGE_EXTERIEUR_DABORD:
+        servie_max = float(x[n_g:].sum())
+        tolerance = TOLERANCE_SERVIE * max(1.0, float(demande.sum()))
+        # Étape 2 seulement s'il y a un délestage : sinon toutes les charges
+        # sont servies en entier et il n'y a rien à départager.
+        if float(demande.sum()) - servie_max > tolerance:
+            poids = priorites_exterieur_dabord(reseau)
+            cout_2 = np.concatenate([np.zeros(n_g), -poids])
+            # Puissance servie maintenue à son maximum : -sum L <= -(S* - tol).
+            ligne_servie = np.concatenate([np.zeros(n_g), -np.ones(n_c)])[None, :]
+            A_ub_2 = np.vstack([A_ub, ligne_servie])
+            b_ub_2 = np.concatenate([b_ub, [-(servie_max - tolerance)]])
+            etape_2 = linprog(cout_2, A_ub=A_ub_2, b_ub=b_ub_2, A_eq=A_eq,
+                              b_eq=b_eq, bounds=bornes, method="highs")
+            if not etape_2.success:
+                # La solution de l'étape 1 est admissible pour l'étape 2 :
+                # un échec ici signale un problème numérique, jamais un choix.
+                raise RuntimeError(
+                    "Le départage 'exterieur_dabord' a échoué alors que "
+                    f"l'étape 1 est admissible : {etape_2.message}"
+                )
+            x = etape_2.x
 
-    # On reconstruit les injections au format attendu par le module réseau.
-    injections = np.zeros(reseau.n_noeuds)
-    injections[reseau.generateurs] = production
-    injections[reseau.charges] = -charge_servie
-
-    # Le flux est simplement la matrice de transfert appliquée au vecteur de décision.
-    flux = flux_par_variable @ resultat.x
-
-    return Solution(
-        injections=injections,
-        production=production,
-        charge_servie=charge_servie,
-        delestage=demande - charge_servie,
-        flux=flux,
-        taux_de_charge=np.abs(flux) / limites,
-        cout=float(resultat.fun),
-    )
+    return _solution(reseau, x, flux_par_variable, demande, limites, n_g,
+                     poids_delestage, departage)
 
 
 def demande_uniforme(reseau: Reseau, total: float,

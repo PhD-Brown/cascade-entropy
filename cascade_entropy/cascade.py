@@ -52,12 +52,17 @@ d'une ligne morte, tel que le renvoie `Solution`, ne veut donc rien dire :
 on lit `Journee.hors_service` et `Journee.taux_maximal`, jamais
 `Journee.solution.taux_maximal`.
 
-Limite connue : dégénérescence du dispatch. Plusieurs répartitions peuvent avoir
-le même coût optimal avec des flux différents, et `dispatch.resoudre()` renvoie
-celle que choisit le solveur, sans règle de sélection. Les lignes saturées, donc
-les avaries par surcharge, dépendent de ce choix. La simulation est reproductible
-à graine fixée, mais ce choix reste arbitraire : aucune conclusion physique ne
-doit s'appuyer sur `journee()` avant que cette dégénérescence soit traitée.
+Dégénérescence du dispatch. Plusieurs répartitions peuvent avoir le même coût
+optimal avec des flux différents. Les lignes saturées, donc les avaries par
+surcharge, dépendent du choix fait parmi elles. `journee(..., departage=...)`
+rend ce choix explicite et le transmet à chaque dispatch de la journée :
+  - ``"highs"`` (défaut) : choix du solveur, sans règle — comportement
+    historique, conservé à l'identique ;
+  - ``"exterieur_dabord"`` : à puissance servie égale, les charges les plus
+    extérieures de l'arbre sont délestées en premier (voir `dispatch`).
+Le délestage total à chaque dispatch est identique pour les deux règles ; ce
+sont la localisation du délestage, les lignes saturées et donc la suite de la
+cascade qui changent. Toute conclusion doit préciser la règle utilisée.
 
 Critères de validation :
   - p0 = 0 et p1 = 0 : `journee()` produit exactement le même résultat qu'un
@@ -79,7 +84,13 @@ from numbers import Real
 
 import numpy as np
 
-from .dispatch import SEUIL_SATURATION, Solution, resoudre
+from .dispatch import (
+    DEPARTAGE_HIGHS,
+    SEUIL_SATURATION,
+    Solution,
+    resoudre,
+    valider_departage,
+)
 from .reseau import Reseau, matrice_de_flux
 
 FACTEUR_REACTANCE_AVARIE = 1e6
@@ -153,7 +164,8 @@ def _probabilite(valeur, nom: str) -> float:
 
 
 def _redispatch(reseau: Reseau, demande: np.ndarray, limites: np.ndarray,
-                puissance_max: np.ndarray, hors_service: np.ndarray) -> Solution:
+                puissance_max: np.ndarray, hors_service: np.ndarray,
+                departage: str = DEPARTAGE_HIGHS) -> Solution:
     """
     Résout le dispatch avec les lignes hors service dégradées.
 
@@ -170,7 +182,8 @@ def _redispatch(reseau: Reseau, demande: np.ndarray, limites: np.ndarray,
     reseau_courant = replace(reseau, reactances=reactances)
     return resoudre(reseau_courant, demande, limites=limites_courantes,
                     puissance_max=puissance_max,
-                    A=matrice_de_flux(reseau_courant))
+                    A=matrice_de_flux(reseau_courant),
+                    departage=departage)
 
 
 def journee(
@@ -182,6 +195,7 @@ def journee(
     g: float,
     rng: np.random.Generator,
     limites: np.ndarray | None = None,
+    departage: str = DEPARTAGE_HIGHS,
 ) -> Journee:
     """
     Simule une journée : demande aléatoire, avaries, redispatch jusqu'à convergence.
@@ -197,7 +211,13 @@ def journee(
     tomber ; avec p = 1, toutes les candidates tombent. Le `Reseau` et les
     limites de l'appelant ne sont jamais modifiés. `limites` vaut par défaut
     `reseau.limites`.
+
+    `departage` (``"highs"`` par défaut, ou ``"exterieur_dabord"``) est appliqué
+    à tous les dispatchs de la journée, initial comme après chaque vague. Il ne
+    consomme aucun tirage aléatoire : à graine égale, les deux règles voient la
+    même demande et les mêmes avaries p0.
     """
+    departage = valider_departage(departage)
     demande_moyenne = np.asarray(demande_moyenne, dtype=float)
     if demande_moyenne.shape != reseau.charges.shape:
         raise ValueError("Une valeur de demande par nœud de charge est requise.")
@@ -225,7 +245,8 @@ def journee(
     avaries_accidentelles = np.flatnonzero(hors_service)
 
     # 3. Premier dispatch, conservé tel quel pour l'observation avant cascade.
-    solution = _redispatch(reseau, demande, limites, puissance_max, hors_service)
+    solution = _redispatch(reseau, demande, limites, puissance_max, hors_service,
+                           departage)
     solution_initiale = solution
     n_iterations = 1
 
@@ -241,7 +262,8 @@ def journee(
             break
         avaries_par_surcharge.append(tombent)
         hors_service[tombent] = True
-        solution = _redispatch(reseau, demande, limites, puissance_max, hors_service)
+        solution = _redispatch(reseau, demande, limites, puissance_max, hors_service,
+                               departage)
         n_iterations += 1
 
     return Journee(
