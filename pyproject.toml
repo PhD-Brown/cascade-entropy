@@ -2,25 +2,77 @@
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
+
 [project]
 name = "cascade-entropy"
 version = "0.1.0"
-description = "Analyse entropique des séries temporelles de pannes en cascade dans les réseaux électriques de transport"
+description = "Analyse informationnelle des pannes en cascade dans les réseaux électriques de transport"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
-authors = [{ name = "Alex Baker" }]
+
+license = { file = "LICENSE" }
+
+authors = [
+    { name = "Alex Baker" }
+]
+
+keywords = [
+    "cascading failures",
+    "power systems",
+    "complex systems",
+    "time series",
+    "entropy",
+    "hurst exponent",
+    "physics"
+]
+
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+
 dependencies = [
     "numpy>=1.24",
     "scipy>=1.10",
     "matplotlib>=3.7",
+    "powerlaw>=1.5",
 ]
 
+
 [project.optional-dependencies]
-dev = ["pytest>=7.4"]
+
+dev = [
+    "pytest>=7.4",
+]
+
+notebooks = [
+    "ipykernel>=6",
+    "jupyterlab>=4",
+]
+
+all = [
+    "pytest>=7.4",
+    "ipykernel>=6",
+    "jupyterlab>=4",
+]
+
+
+[project.urls]
+Homepage = "https://github.com/PhD-Brown/cascade-entropy"
+Repository = "https://github.com/PhD-Brown/cascade-entropy"
+Issues = "https://github.com/PhD-Brown/cascade-entropy/issues"
+
 
 [tool.setuptools.packages.find]
 include = ["cascade_entropy*"]
+
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
