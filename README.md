@@ -69,7 +69,7 @@ Le point de comparaison principal est l'analyse de Carreras et al. basée sur l'
 
 | Sous-objectif | Question | État actuel |
 |---|---|---|
-| **SO1 — Reproduire le mécanisme de cascade** | Le modèle retrouve-t-il les transitions et structures de référence de Carreras 2002 ? | Complété le 5 octobre 2026** — Fig. 3 à 11 reproduites |
+| **SO1 — Reproduire le mécanisme de cascade** | Le modèle retrouve-t-il les transitions et structures de référence de Carreras 2002 ? | Complété le 5 octobre 2026 — Fig. 3 à 11 reproduites |
 | **SO2 — Produire les séries de blackouts** | La dynamique lente retrouve-t-elle les propriétés temporelles de référence, notamment le comportement de Hurst en fonction de `G` ? | Code et tests prêts, balayage en `G` en cours, aucune cible encore validée |
 | **SO3 — Tester l'apport informationnel** | Les entropies séparent-elles les régimes autrement ou plus tôt que les indicateurs classiques ? | Outils validés sur séries synthétiques ; application aux séries de SO2 à venir |
 
