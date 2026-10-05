@@ -39,7 +39,7 @@ Le projet poursuit deux fils complémentaires :
 - **Fil A — physique du réseau :** construire un modèle électrique simplifié, reproduire le mécanisme de cascade de Carreras et al., puis générer des séries temporelles contrôlées de blackouts ;
 - **Fil B — théorie de l'information :** tester si l'entropie de permutation, l'entropie d'échantillon et l'entropie multiéchelle apportent une information complémentaire aux indicateurs électriques et statistiques de référence.
 
-Les deux fils sont **strictement séparés** : le fil B n'importe jamais le fil A. Ils ne communiquent que par des fichiers de séries écrits sur disque.
+Les deux fils sont **séparés** : aucun module du fil B n'importe un module du fil A, et les séries passent d'un fil à l'autre par des fichiers écrits sur disque. La seule dépendance dans l'autre sens est documentée : `evolution` (fil A) importe `entropie.nombre_effectif` (fil B) pour calculer l'une de ses observables.
 
 Le dépôt a franchi une étape : la **validation quantitative de SO1 (Carreras et al., 2002) est fermée depuis le 5 octobre 2026**, et le projet est maintenant dans la **réplication de la dynamique lente (SO2, Carreras et al., 2004)**, dont le balayage en `G` est en cours de production. Les séries qui en sortiront alimenteront SO3 (entropies).
 
@@ -69,9 +69,9 @@ Le point de comparaison principal est l'analyse de Carreras et al. basée sur l'
 
 | Sous-objectif | Question | État actuel |
 |---|---|---|
-| **SO1 — Reproduire le mécanisme de cascade** | Le modèle retrouve-t-il les transitions et structures de référence de Carreras 2002 ? | ✅ **Fermé le 5 octobre 2026** — Fig. 3 à 11 reproduites |
-| **SO2 — Produire les séries de blackouts** | La dynamique lente retrouve-t-elle les propriétés temporelles de référence, notamment le comportement de Hurst en fonction de `G` ? | 🟡 Code et tests prêts, balayage en `G` en cours, aucune cible encore validée |
-| **SO3 — Tester l'apport informationnel** | Les entropies séparent-elles les régimes autrement ou plus tôt que les indicateurs classiques ? | 🟡 Outils validés sur séries synthétiques ; application aux séries de SO2 à venir |
+| **SO1 — Reproduire le mécanisme de cascade** | Le modèle retrouve-t-il les transitions et structures de référence de Carreras 2002 ? | Complété le 5 octobre 2026** — Fig. 3 à 11 reproduites |
+| **SO2 — Produire les séries de blackouts** | La dynamique lente retrouve-t-elle les propriétés temporelles de référence, notamment le comportement de Hurst en fonction de `G` ? | Code et tests prêts, balayage en `G` en cours, aucune cible encore validée |
+| **SO3 — Tester l'apport informationnel** | Les entropies séparent-elles les régimes autrement ou plus tôt que les indicateurs classiques ? | Outils validés sur séries synthétiques ; application aux séries de SO2 à venir |
 
 ---
 
@@ -351,6 +351,7 @@ Le fil B doit répondre à une question simple mais exigeante : **une mesure ent
 ```text
 cascade-entropy/
 ├── cascade_entropy/
+│   ├── README.md          # modules, fils A et B, conventions
 │   ├── reseau.py          # topologie, matrices électriques, flux DC
 │   ├── dispatch.py        # dispatch LP, charge servie, délestage, option departage
 │   ├── cascade.py         # p0 / p1 et propagation d'une cascade
@@ -359,24 +360,29 @@ cascade-entropy/
 │   ├── entropie.py        # Shannon, permutation, SampEn, MSE...
 │   ├── indicateurs.py     # Hurst R/S, MSER, survie, diagnostics de queue
 │   ├── controles.py       # témoins / permutations temporelles
+│   ├── synthetiques.py    # séries de comportement connu (validation du fil B)
 │   ├── figures.py         # visualisations réutilisables
+│   ├── chemins.py         # chemins canoniques data/ et figures/ (racine du dépôt)
 │   └── _validation.py     # validation commune des entrées
 │
 ├── notebooks/
 │   ├── 00_fondations_probabilistes.ipynb
 │   ├── 01_laboratoire.ipynb
 │   ├── 02_modele_evolution.ipynb
-│   └── 03_analyse_entropique.ipynb
+│   ├── 03_analyse_entropique.ipynb
+│   ├── autres/            # versions antérieures, non maintenues
+│   └── README.md
 │
 ├── scripts/
 │   ├── 01_croisement_multiechelle.py
 │   ├── 02_melange_temporel.py
-│   ├── 03_balayage_charge.py
+│   ├── 03_balayage_charge.py              # historique, qualitatif (échelle calibrée)
 │   ├── 04_loi_puissance_taille_finie.py   # expérience historique
 │   ├── 05_diagnostics_carreras.py         # figures déterministes Fig. 3-11
 │   ├── 05_reproduction_carreras.py        # campagnes stochastiques SO1
 │   ├── 06_validation_so1.py               # audit chiffré SO1
-│   └── 07_dynamique_lente.py              # production SO2 (cas taille x G)
+│   ├── 07_dynamique_lente.py              # production SO2 (cas taille x G)
+│   └── README.md                          # options de chaque script
 │
 ├── tests/                 # tests pytest (voir « Reproductibilité »)
 ├── docs/                  # journal de bord (docs/journal.md)
@@ -387,6 +393,8 @@ cascade-entropy/
 ```
 
 > **Convention du projet :** les notebooks racontent la démarche scientifique ; le paquet `cascade_entropy` effectue les calculs réutilisables et testables.
+
+Chaque dossier de code a son propre README : [`cascade_entropy/`](cascade_entropy/README.md) (modules et règle entre les fils A et B), [`scripts/`](scripts/README.md) (options de chaque script) et [`notebooks/`](notebooks/README.md) (politique de versionnement des carnets).
 
 ### Ce qui est versionné, et ce qui ne l'est pas
 
@@ -400,7 +408,7 @@ Les sorties de simulation sont **régénérables** à partir des scripts, des gr
 | Figures de référence (PNG) | Oui | celles citées dans ce README et dans les rapports |
 | `donnees_externes/` | Non | aucune donnée externe ne doit entrer dans le dépôt |
 
-Les figures déterministes de `figures/05_reproduction_carreras/deterministe_exterieur_dabord/` se régénèrent avec `scripts/05_diagnostics_carreras.py`.
+Les figures déterministes de `figures/05_reproduction_carreras/deterministe_exterieur_dabord/` se régénèrent avec `python scripts/05_diagnostics_carreras.py --departage exterieur_dabord`.
 
 ---
 
@@ -438,10 +446,14 @@ python -m pytest -q
 ### Reproduire les diagnostics Carreras 2002
 
 ```bash
+# Règle de référence (exterieur_dabord) : sorties dans deterministe_exterieur_dabord/
+python scripts/05_diagnostics_carreras.py --departage exterieur_dabord
+
+# Règle historique (highs, valeur par défaut) : sorties dans deterministe/
 python scripts/05_diagnostics_carreras.py
 ```
 
-Balayage déterministe plus fin :
+Balayage déterministe plus fin (ajouter `--departage exterieur_dabord` pour la règle de référence) :
 
 ```bash
 python scripts/05_diagnostics_carreras.py --pas 0.0025
