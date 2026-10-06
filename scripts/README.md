@@ -24,6 +24,7 @@ Chaque script produit une figure ou un résultat chiffré destiné au rapport. U
 | `06_validation_so1.py` | A | Audit chiffré de SO1 contre les valeurs publiées | `data/05_reproduction_carreras/validation_so1/` | SO1 validé |
 | `07_dynamique_lente.py` | A | Dynamique lente de Carreras et al. (2004), cas taille × `G` | `data/` et `figures/07_dynamique_lente/runs/<run-id>/` | SO2 produit (balayage `so2-G-scan` terminé) |
 | `08_analyse_so2.py` | B | Analyse des séries de SO2 : `H` avec références par mélange, cycles, Fig. 4, 7, 8, 9 et Table I de Carreras 2004 | `data/08_analyse_so2/<run-id>/` | SO2 analysé |
+| `09_analyse_so3.py` | B | SO3, étape 1 : PE multiéchelle et MSE de `nombre_effectif`, `taux_maximal` et de la charge relative, contre mélanges et substituts IAAFT | `data/09_analyse_so3/<run-id>/` | SO3 en cours |
 
 ### Attention : le défaut de `--departage` n'est pas le même partout
 
@@ -251,6 +252,20 @@ python scripts/08_analyse_so2.py --help
 ```
 
 **Sorties** : `data/08_analyse_so2/<run-id>/`. Les résultats commentés (valeurs, écarts à Carreras 2004, cycles) sont dans [`docs/so2_carreras_2004.md`](../docs/so2_carreras_2004.md).
+
+
+## `09_analyse_so3.py`
+
+SO3, étape 1. Lit un run de `07_dynamique_lente.py` et calcule, par cas et par observable, l'entropie de permutation multiéchelle et l'entropie multiéchelle (SampEn par arbre k-d, tolérance fixe r·σ). Chaque valeur est comparée à deux références : des mélanges (même distribution, aucun ordre) et des substituts IAAFT (même distribution et même spectre). Un écart au mélange signale une structure temporelle ; un écart à l'IAAFT, une structure que le spectre, donc Hurst, n'explique pas. Le délestage et les lignes tombées, surtout faits de zéros exacts, ne reçoivent qu'un diagnostic d'égalités (`egalites.csv`).
+
+Chaque couple (cas, observable) est une tâche ; `--resume` réutilise celles dont les paramètres et l'entrée sont inchangés. Le résultat ne dépend pas de `--workers`.
+
+```powershell
+python scripts/09_analyse_so3.py --run so2-G-scan --workers 20
+python scripts/09_analyse_so3.py --run so2-G-scan --workers 20 --resume
+```
+
+**Sorties** : `data/09_analyse_so3/<run-id>/` (`entropie.csv`, `resume.csv`, `egalites.csv`, `metadata.json`, `taches/`) et `figures/09_analyse_so3/<run-id>/` (`mse_<observable>.png`, `z_<mesure>_<reference>.png`).
 
 ---
 

@@ -213,3 +213,20 @@ ligne de commande.
 ### État de la suite de tests
 
 60 tests, environ 21 secondes.
+## 2026-10-05 — SO3, étape 1 : outils et premier passage
+
+### Audit des séries de `so2-G-scan`
+
+Avant toute entropie, la règle du « point de vigilance » ci-dessus : mesurer les égalités. Sur les 100 000 jours qui suivent le transitoire, `nombre_effectif`, la charge relative (demande / capacité des générateurs) et, à faible G, `taux_maximal` n'ont aucune égalité ; `taux_maximal` a 8 à 36 % de valeurs répétées à 46 nœuds et à G ≥ 1. Le délestage (59 à 99 % de zéros) et les lignes tombées (60 à 97 %) restent exclus de PE et de SampEn.
+
+Les observables quotidiens sont presque un bruit blanc : autocorrélation à un jour ≤ 0.03, PE = 1.0000 comme leur mélange. Les facteurs régionaux de demande sont tirés indépendamment chaque jour ; la mémoire du réseau ne vit que dans une composante lente (variance des moyennes de 1000 jours 1.2 à 4.3 fois celle d'un bruit blanc).
+
+### Outils ajoutés
+
+- `entropie.echantillon(..., methode="arbre")` : mêmes comptes de paires que le calcul par blocs (vérifié exactement, y compris sur des entiers et des séries riches en zéros), avec un arbre k-d ; 100 000 points en environ 2 s. `multiechelle` accepte aussi une liste d'échelles. Défauts inchangés.
+- `substituts.substitut_iaaft` (Schreiber et Schmitz 1996) : même distribution, même spectre à 0.1 % près, phases aléatoires. Un AR(1) est indiscernable de ses substituts (z = 2.5 sur SampEn), l'application logistique en est séparée (z = −145).
+- `analyse_entropie` : PE multiéchelle, MSE, références par mélange et IAAFT, diagnostic d'égalités ; `scripts/09_analyse_so3.py` orchestre les 21 cas.
+
+### Premier passage (Linux, 46 et 94 nœuds disponibles localement, 20 + 20 substituts)
+
+Contre le mélange, la MSE de `nombre_effectif` et de `taux_maximal` s'écarte nettement aux grandes échelles (z jusqu'à +24 à 200 jours), d'autant plus que G est grand ; la charge relative ne s'en écarte pas (|z| ≲ 2), la régulation de la génération n'y laissant aucune structure lente. Contre IAAFT, presque tout cet écart disparaît dès 5 jours : la MSE à grande échelle ne voit que le spectre. Restent deux écarts à l'échelle 1, petits en valeur (≤ 2 % de SampEn) mais nets en z : `taux_maximal` (jusqu'à z = −28), là où ses valeurs répétées existent et se regroupent dans le temps, probablement un effet d'égalités ; `nombre_effectif` à 94 nœuds pour G ≥ 0.75 (z = −3.6 à −5.7, sans aucune égalité), à confirmer sur 190 nœuds et avec plus de substituts.

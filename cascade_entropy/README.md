@@ -10,6 +10,8 @@ Fil A : modèle du réseau                         Fil B : outils d'analyse
   dispatch    demande -> flux sur les lignes       entropie       série -> mesure informationnelle
   cascade     état du réseau -> blackout           indicateurs    série -> indicateur de référence
   evolution   N jours -> séries temporelles          analyse_series séries de SO2 -> H, cycles, queues
+                                                   substituts     série -> mélanges, IAAFT
+                                                   analyse_entropie séries de SO3 -> PE, MSE, références
 
                   séries temporelles écrites sur disque
         (le fil A les produit, le fil B les lit : le fil B n'importe jamais le fil A)
@@ -31,9 +33,11 @@ Aucun module du fil B n'importe un module du fil A. Les deux fils communiquent p
 | `evolution.py` | A | Dynamique multi-jours (modes `independant` et `auto_organise`), fluctuations régionales, reprise exacte | `simuler`, `EtatEvolution`, `marge_pour_G` |
 | `carreras.py` | A | Protocole contrôlé de Carreras et al. (2002) : constantes de la Table I, régions, bandes ordonnées | `configuration_arbre`, `groupes_regions`, `bandes_ordonnees`, `P_G_TABLE`, `P_L_TABLE`, `GAMMA_TABLE` |
 | `synthetiques.py` | B | Séries de comportement connu (sinusoïde, bruits en `f^-β`) pour valider les analyses | `periodique`, `bruit_puissance`, `bruit_blanc`, `bruit_rose` |
-| `entropie.py` | B | Shannon, entropie de répartition, nombre effectif, entropie de permutation, SampEn, MSE | `nombre_effectif`, `multiechelle` |
+| `entropie.py` | B | Shannon, entropie de répartition, nombre effectif, entropie de permutation, SampEn, MSE ; option `methode="arbre"` (arbre k-d, mêmes comptes, praticable sur 10⁵ points) et liste d'échelles | `nombre_effectif`, `multiechelle`, `METHODES_SAMPEN` |
 | `indicateurs.py` | B | Indicateurs de référence : exposant de Hurst `R/S`, détection du transitoire (MSER), diagnostics de queue | |
 | `analyse_series.py` | B | Analyse des séries de SO2 : `R/S` vectorisé par plage, référence par mélange, période dominante, queue de distribution | |
+| `substituts.py` | B | Séries de substitution : IAAFT (même distribution et même spectre, phases aléatoires, Schreiber et Schmitz 1996) | `substitut_iaaft`, `ecart_spectral` |
+| `analyse_entropie.py` | B | Batterie de SO3 : PE multiéchelle, MSE, références par mélange et IAAFT, diagnostic d'égalités | `analyser_avec_references`, `resume_substituts`, `diagnostic_egalites` |
 | `controles.py` | B | Témoins : mélanges temporels (mêmes valeurs, ordre détruit) | `analyser` |
 | `figures.py` | transversal | Visualisations réutilisables | |
 | `chemins.py` | transversal | Chemins canoniques `data/` et `figures/` à la racine du dépôt | `racine_projet`, `DOSSIER_DATA`, `DOSSIER_FIGURES` |

@@ -26,6 +26,7 @@ différentes :
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from math import factorial, log
 
 import numpy as np
@@ -33,6 +34,14 @@ import numpy as np
 from ._validation import entier_positif, serie_finie
 
 TAILLE_BLOC = 512
+
+# Méthodes de comptage des paires de SampEn. « blocs » est le calcul historique
+# (comparaison directe, par blocs de TAILLE_BLOC lignes, coût n²) ; « arbre »
+# compte les mêmes paires avec un arbre k-d (scipy.spatial.cKDTree, distance de
+# Tchebychev), sans jamais construire la matrice des distances. Les deux
+# donnent exactement les mêmes comptes (tests/test_entropie_arbre.py) ; seul
+# l'arbre reste praticable sur les 100 000 jours d'un cas de SO2.
+METHODES_SAMPEN = ("blocs", "arbre")
 
 
 def shannon(probabilites: np.ndarray) -> float:
@@ -233,11 +242,49 @@ def _compter_paires(modeles: np.ndarray, r: float) -> tuple[int, int]:
     return total_m - n, total_m1 - n
 
 
+def _compter_paires_arbre(modeles: np.ndarray, r: float) -> tuple[int, int]:
+    """
+    Mêmes comptes que `_compter_paires`, obtenus avec deux arbres k-d.
+
+    `cKDTree.count_neighbors(arbre, r, p=inf)` compte toutes les paires
+    ordonnées (i, j), i = j compris, dont la distance de Tchebychev est ≤ r :
+    c'est exactement la somme de la matrice booléenne de `_compter_paires`.
+    Un premier arbre est construit sur les m premières coordonnées (comptes de
+    longueur m), un second sur les m + 1 coordonnées (comptes de longueur
+    m + 1, puisque la distance en m + 1 est le maximum de la distance en m et
+    de l'écart sur le point supplémentaire). On retire ensuite les n
+    auto-comparaisons, comme dans le calcul par blocs.
+
+    L'arbre regroupe les points voisins et compte d'un coup les paires de
+    boîtes entièrement à moins de r l'une de l'autre : la matrice n × n n'est
+    jamais formée. Sur 100 000 points, le calcul prend quelques secondes au
+    lieu de plusieurs dizaines de minutes.
+    """
+    # Import local : SciPy n'est requis que si l'on choisit cette méthode.
+    from scipy.spatial import cKDTree
+
+    n, largeur = modeles.shape
+    m = largeur - 1
+    court = cKDTree(modeles[:, :m])
+    complet = cKDTree(modeles)
+    total_m = int(court.count_neighbors(court, r, p=np.inf))
+    total_m1 = int(complet.count_neighbors(complet, r, p=np.inf))
+    return total_m - n, total_m1 - n
+
+
+def _methode_valide(methode) -> str:
+    """Refuse toute méthode de comptage autre que celles de METHODES_SAMPEN."""
+    if not isinstance(methode, str) or methode not in METHODES_SAMPEN:
+        raise ValueError(f"methode doit valoir {' ou '.join(METHODES_SAMPEN)}.")
+    return methode
+
+
 def echantillon(
     serie: np.ndarray,
     m: int = 2,
     r: float = 0.15,
     ecart_reference: float | None = None,
+    methode: str = "blocs",
 ) -> float:
     """
     Entropie d'échantillon (SampEn).
@@ -255,9 +302,14 @@ def echantillon(
 
     `r` est donné en fraction de l'écart-type. Cela donne une tolérance de
     similarité, ce qui rend la mesure robuste à de petites variations.
+
+    `methode` choisit le comptage des paires : « blocs » (défaut, calcul
+    historique, coût en n²) ou « arbre » (arbre k-d, mêmes comptes, praticable
+    sur 10^5 points). Le résultat est identique ; seul le temps de calcul change.
     """
     # On vérifie les données et les paramètres avant de construire les motifs.
     serie = serie_finie(serie)
+    methode = _methode_valide(methode)
     m = entier_positif(m, "m")
     if not np.isfinite(r) or r <= 0:
         raise ValueError("r doit être fini et strictement positif.")
@@ -285,7 +337,8 @@ def echantillon(
     modeles = serie[np.arange(n_modeles)[:, None] + indices]
 
     # On compte les correspondances de longueur m puis de longueur m+1.
-    compte_m, compte_m1 = _compter_paires(modeles, tolerance)
+    compter = _compter_paires if methode == "blocs" else _compter_paires_arbre
+    compte_m, compte_m1 = compter(modeles, tolerance)
     if compte_m <= 0 or compte_m1 <= 0:
         # Sans paire comparable, le logarithme du rapport ne peut pas être
         # calculé de manière interprétable.
@@ -324,9 +377,10 @@ def granulariser(serie: np.ndarray, echelle: int) -> np.ndarray:
 
 def multiechelle(
     serie: np.ndarray,
-    echelles: int = 20,
+    echelles: int | Sequence[int] = 20,
     m: int = 2,
     r: float = 0.15,
+    methode: str = "blocs",
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Entropie multiéchelle : SampEn calculée sur plusieurs échelles.
@@ -345,10 +399,30 @@ def multiechelle(
     # Les validations sont faites ici afin de détecter rapidement les paramètres
     # invalides avant de lancer plusieurs calculs de SampEn.
     serie = serie_finie(serie)
-    echelles = entier_positif(echelles, "echelles")
+    methode = _methode_valide(methode)
+    liste = None
+    if isinstance(echelles, Sequence) and not isinstance(echelles, str):
+        liste = [entier_positif(e, "echelle") for e in echelles]
+        if not liste or any(b <= a for a, b in zip(liste, liste[1:])):
+            raise ValueError("La liste d'échelles doit être non vide et strictement croissante.")
+    else:
+        echelles = entier_positif(echelles, "echelles")
     m = entier_positif(m, "m")
     if not np.isfinite(r) or r <= 0:
         raise ValueError("r doit être fini et strictement positif.")
+
+    if liste is not None:
+        # Liste explicite : une valeur par échelle demandée, NaN si trop courte.
+        ecart = serie.std(ddof=0)
+        valeurs = []
+        for echelle in liste:
+            if serie.size // echelle < 10 * (m + 1):
+                valeurs.append(np.nan)
+                continue
+            granulee = granulariser(serie, echelle)
+            valeurs.append(echantillon(granulee, m=m, r=r, ecart_reference=ecart,
+                                       methode=methode))
+        return np.array(liste, dtype=float), np.array(valeurs, dtype=float)
 
     # Cette dispersion sert de référence commune à toutes les séries granularisées.
     # Ainsi, la tolérance r * ecart ne change pas artificiellement uniquement
@@ -367,7 +441,8 @@ def multiechelle(
         if granulee.size < 10 * (m + 1):
             break
         liste_echelles.append(echelle)
-        valeurs.append(echantillon(granulee, m=m, r=r, ecart_reference=ecart))
+        valeurs.append(echantillon(granulee, m=m, r=r, ecart_reference=ecart,
+                                   methode=methode))
 
     # Les listes sont converties en tableaux NumPy pour faciliter les tracés et
     # les calculs ultérieurs sur la courbe multiéchelle.
