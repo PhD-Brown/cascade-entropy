@@ -23,7 +23,7 @@
 
 **Alex Baker** · Université Laval · Automne 2026  
 PHY-3202 — Projet I · Superviseur : **Patrick Desrosiers**  
-Concept original : **Nickie Menementis**
+Concept original : **Nickie Menemenlis**
 
 [Vue d'ensemble](#vue-densemble) · [Question scientifique](#question-scientifique) · [Modèle](#modèle) · [Résultats](#résultats-actuels) · [Architecture](#architecture-du-dépôt) · [Démarrage](#démarrage-rapide) · [Roadmap](#roadmap)
 
@@ -409,7 +409,7 @@ Quatre carnets suivent l'ordre logique du projet (fondations probabilistes, labo
 
 Ce projet est réalisé sous la supervision de **Patrick Desrosiers** à
 l'Université Laval. L'idée originale à l'origine du projet a été proposée
-par **Nickie Menementis**.
+par **Nickie Menemenlis**.
 
 ---
 
