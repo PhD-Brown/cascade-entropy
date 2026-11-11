@@ -19,13 +19,20 @@ de l'équilibre global des puissances : la somme des injections étant nulle, le
 laplacien complet est singulier et les angles ne sont définis qu'à une constante
 près.
 
+Unités : les injections et les réactances sont en valeurs réduites (pu). Les
+flux sont alors en pu, et les angles en radians. Les flux ne dépendent que des
+rapports entre réactances ; les angles, eux, dépendent de leur valeur absolue.
+
 Critères de validation :
   - la somme des injections doit être nulle ;
   - le réseau doit être connexe ;
   - la matrice de flux doit avoir la dimension (nombre de lignes, nombre de
     nœuds moins un) ;
   - sur un arbre, le flux d'une ligne doit égaler la somme des injections du
-    sous-arbre qu'elle alimente, indépendamment des réactances.
+    sous-arbre qu'elle alimente, indépendamment des réactances ;
+  - sur un réseau maillé, la loi des mailles doit tenir : autour de chaque
+    boucle, la somme des x_l F_l (orientées) est nulle, et les flux dépendent
+    des réactances.
 """
 
 from __future__ import annotations
@@ -55,7 +62,7 @@ class Reseau:
 
     n_noeuds: int
     lignes: np.ndarray            # (n_lignes, 2), indices des extrémités
-    reactances: np.ndarray        # (n_lignes,), résistance électrique linéarisée
+    reactances: np.ndarray        # (n_lignes,), réactance série de chaque ligne (pu), > 0
     generateurs: np.ndarray       # indices des nœuds producteurs
     charges: np.ndarray           # indices des nœuds consommateurs
     limites: np.ndarray | None = None      # (n_lignes,), capacités F_max
@@ -68,10 +75,38 @@ class Reseau:
         return len(self.lignes)
 
     def __post_init__(self) -> None:
-        """Vérifie rapidement que le réseau est cohérent avant utilisation."""
+        """
+        Vérifie rapidement que le réseau est cohérent avant utilisation.
+
+        Les contrôles portent sur la forme des tableaux et sur les indices : une
+        ligne doit relier deux nœuds distincts du réseau, chaque réactance doit
+        être finie et strictement positive (la susceptance 1/x en dépend), et
+        les générateurs et les charges doivent désigner des nœuds existants.
+        Le réseau peut être un arbre ou un graphe maillé quelconque.
+        """
+        lignes = np.asarray(self.lignes)
+        # Chaque ligne relie exactement deux nœuds.
+        if lignes.ndim != 2 or lignes.shape[1] != 2:
+            raise ValueError("Les lignes doivent former un tableau de forme (n_lignes, 2).")
+        if lignes.size and not np.issubdtype(lignes.dtype, np.integer):
+            raise ValueError("Les extrémités des lignes doivent être des indices entiers.")
+        # Une extrémité hors du réseau rendrait la matrice d'incidence fausse.
+        if lignes.size and (lignes.min() < 0 or lignes.max() >= self.n_noeuds):
+            raise ValueError("Une ligne relie un nœud hors du réseau.")
+        # Une ligne d'un nœud vers lui-même ne transporte rien et fausse le laplacien.
+        if np.any(lignes[:, 0] == lignes[:, 1]):
+            raise ValueError("Une ligne relie un nœud à lui-même.")
         # Une réactance par ligne est nécessaire pour définir la susceptance de la branche.
         if self.reactances.shape != (self.n_lignes,):
             raise ValueError("Une réactance par ligne est requise.")
+        # La susceptance 1/x exige une réactance finie et strictement positive.
+        if not np.all(np.isfinite(self.reactances)) or np.any(self.reactances <= 0):
+            raise ValueError("Chaque réactance doit être finie et strictement positive.")
+        # Générateurs et charges doivent désigner des nœuds existants.
+        for nom, indices in (("générateur", self.generateurs), ("charge", self.charges)):
+            indices = np.asarray(indices)
+            if indices.size and (indices.min() < 0 or indices.max() >= self.n_noeuds):
+                raise ValueError(f"Un indice de {nom} est hors du réseau.")
         # Si des limites sont fournies, il faut en avoir une par ligne.
         if self.limites is not None and self.limites.shape != (self.n_lignes,):
             raise ValueError("Une limite par ligne est requise.")
@@ -176,7 +211,7 @@ def est_connexe(reseau: Reseau) -> bool:
     """
     Vérifie qu'un graphe est entièrement connecté.
 
-    On part du nœud de référence, puis on explose le graphe en profondeur via une pile
+    On part du nœud de référence, puis on explore le graphe en profondeur via une pile
     de parcours. Si on visite tous les nœuds, le réseau est connexe ; sinon, il
     comporte au moins une composante isolée.
     """
@@ -266,18 +301,89 @@ def flux(reseau: Reseau, injections: np.ndarray, A: np.ndarray | None = None) ->
     return A @ injections[_indices_hors_reference(reseau)]
 
 
-def angles(reseau: Reseau, injections: np.ndarray) -> np.ndarray:
+def angles(reseau: Reseau, injections: np.ndarray, degres: bool = False) -> np.ndarray:
     """
     Résout les angles de phase du réseau dans l'approximation DC.
 
     Les angles sont définis à une constante près, donc on fixe le nœud de
     référence à zéro. Cela rend le système solvable sans ambiguïté.
+
+    Avec injections et réactances en pu, les angles sont en radians ; avec
+    `degres=True` (option, défaut False), ils sont convertis en degrés. Comme
+    pour `flux`, l'injection du nœud de référence n'entre pas dans le calcul.
     """
+    injections = np.asarray(injections, dtype=float)
+    if injections.shape != (reseau.n_noeuds,):
+        raise ValueError("Une injection par nœud est requise.")
     autres = _indices_hors_reference(reseau)
     B_reduit = laplacien(reseau)[np.ix_(autres, autres)]
     theta = np.zeros(reseau.n_noeuds)
-    theta[autres] = np.linalg.solve(B_reduit, np.asarray(injections)[autres])
-    return theta
+    theta[autres] = np.linalg.solve(B_reduit, injections[autres])
+    return np.degrees(theta) if degres else theta
+
+
+def completer_reference(reseau: Reseau, injections: np.ndarray) -> np.ndarray:
+    """
+    Équilibre les injections par le nœud de référence (nœud « bilan », ou slack).
+
+    Dans un calcul de répartition des flux, on fixe les injections de tous les
+    nœuds sauf un ; ce dernier produit ou absorbe l'écart pour que la somme soit
+    nulle. La fonction renvoie une copie dont l'injection du nœud de référence
+    vaut moins la somme des autres ; la valeur fournie pour ce nœud est ignorée.
+    Les flux ne changent pas (cette injection n'entre pas dans F = A P), mais
+    le vecteur passe ensuite le contrôle d'équilibre de `flux`.
+    """
+    injections = np.array(injections, dtype=float)
+    if injections.shape != (reseau.n_noeuds,):
+        raise ValueError("Une injection par nœud est requise.")
+    if not np.all(np.isfinite(injections)):
+        raise ValueError("Les injections doivent être finies.")
+    autres = _indices_hors_reference(reseau)
+    injections[reseau.reference] = -injections[autres].sum()
+    return injections
+
+
+def repartir_desequilibre(reseau: Reseau, injections: np.ndarray,
+                          participants: np.ndarray | None = None,
+                          poids: np.ndarray | None = None) -> np.ndarray:
+    """
+    Équilibre les injections sans nœud d'équilibrage unique (équilibrage réparti).
+
+    Option à côté de `completer_reference` (qui reste le comportement par
+    défaut) : l'écart de bilan s = somme des injections est absorbé par
+    plusieurs nœuds `participants`, chacun au prorata de son `poids`. Par
+    défaut, les participants sont les générateurs dont l'injection est
+    positive, et leur poids est leur production (« au prorata de la
+    production »). La fonction renvoie une copie dont la somme est nulle ;
+    les injections des autres nœuds ne changent pas.
+
+    Si les injections sont déjà équilibrées, elles sont rendues telles quelles.
+    Sans aucun participant de poids positif, l'écart ne peut pas être absorbé :
+    ValueError.
+    """
+    injections = np.array(injections, dtype=float)
+    if injections.shape != (reseau.n_noeuds,):
+        raise ValueError("Une injection par nœud est requise.")
+    if not np.all(np.isfinite(injections)):
+        raise ValueError("Les injections doivent être finies.")
+    if participants is None:
+        participants = np.array([g for g in reseau.generateurs if injections[g] > 0], dtype=int)
+    participants = np.asarray(participants, dtype=int).reshape(-1)
+    if participants.size and (participants.min() < 0 or participants.max() >= reseau.n_noeuds):
+        raise ValueError("Les participants doivent désigner des nœuds existants.")
+    if len(set(participants.tolist())) != participants.size:
+        raise ValueError("Un nœud ne peut participer qu'une fois.")
+    poids = injections[participants] if poids is None else np.asarray(poids, dtype=float).reshape(-1)
+    if poids.shape != participants.shape or not np.all(np.isfinite(poids)) or np.any(poids < 0):
+        raise ValueError("Il faut un poids fini et positif ou nul par participant.")
+    ecart = injections.sum()
+    if abs(ecart) <= 1e-12:
+        return injections
+    total = poids.sum()
+    if participants.size == 0 or total <= 0:
+        raise ValueError("Aucun participant de poids positif ne peut absorber l'écart de bilan.")
+    injections[participants] -= ecart * poids / total
+    return injections
 
 
 def taux_de_charge(flux_lignes: np.ndarray, limites: np.ndarray) -> np.ndarray:
@@ -304,6 +410,9 @@ def limites_par_niveau(reseau: Reseau, capacites: np.ndarray | None = None) -> n
         # Valeurs de référence pour les arbres de profondeur croissante.
         capacites = np.array([15620.0, 7748.7, 3812.9, 1844.9, 860.97, 368.99, 123.00])
 
+    # Les niveaux n'existent que pour les arbres construits par `arbre()`.
+    if reseau.niveaux is None:
+        raise ValueError("limites_par_niveau exige reseau.niveaux (arbre construit par arbre()).")
     # Le niveau d'une ligne est celui du nœud enfant, donc le sous-arbre qu'elle contient.
     niveau_ligne = reseau.niveaux[reseau.lignes[:, 1]] - 1
     if niveau_ligne.max() >= capacites.size:
