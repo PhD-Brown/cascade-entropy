@@ -178,9 +178,20 @@ aucune de ces hypothèses pour la campagne.
   dépendance déclarée.
 - Référence avant B4 : `python -m pytest -q` → **509 passed in 138.89s**.
 - Sélection : `python -m pytest tests/test_attribution_n1.py tests/test_topologies_n1.py tests/test_n1.py tests/test_cascade_n1.py -q`
-  → **168 passed in 1.02s**, dont **97 tests B4**.
+  → **168 passed in 0.91s** dans le worktree isolé, dont **97 tests B4**.
+- B4 seul : `python -m pytest tests/test_attribution_n1.py -q`
+  → **97 passed in 0.91s** dans ce même worktree.
 - Analyse syntaxique AST des deux nouveaux fichiers Python : réussie.
-- Suite complète finale : résultat consigné dans la PR après exécution.
+- Suite complète finale : `python -m pytest -q` → **606 passed in 158.85s**,
+  en worktree propre au commit `689e94aadd0bbef724b188fe01c58b64e65ae8fa`.
+  Le commit suivant ne complète que ce compte rendu ; code et tests inchangés.
+
+Un contrôle distinct du workspace partagé a donné **757 passed, 1 failed in
+204.76s** : `tests/test_centralites_lignes.py::test_paires_invalides[options8]`,
+fichier d'une autre mission en cours de modification pendant l'exécution.
+Ce constat historique n'est pas une validation d'un snapshot stable de cette
+autre mission. Ses fichiers ne sont pas inclus dans cette PR et aucun correctif
+ne leur est apporté. Le résultat de référence B4 est celui du worktree isolé.
 
 Environnement : Windows, Python 3.11.9, NumPy 2.3.4, SciPy 1.16.3,
 pytest 9.1.1. Tests uniquement sur réseaux synthétiques : oracles analytiques
