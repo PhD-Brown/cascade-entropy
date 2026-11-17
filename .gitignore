@@ -237,3 +237,6 @@ figures/05_reproduction_carreras/05_scan_controle.png
 figures/05_reproduction_carreras/deterministe/*
 !figures/05_reproduction_carreras/deterministe/05_carreras_fig09_carte_M.png
 !figures/05_reproduction_carreras/deterministe/05_carreras_fig10_carte_M_etendue.png
+
+# Paramètres locaux de VS Code
+/.vscode/
