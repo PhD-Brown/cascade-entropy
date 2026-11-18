@@ -1,0 +1,331 @@
+{
+  "principal": {
+    "run_id": "departage-20261118-v3",
+    "environnement": {
+      "python": "3.11.9",
+      "plateforme": "Windows-10-10.0.26300-SP0",
+      "numpy": "2.3.4",
+      "scipy": "1.16.3",
+      "highs": "1.8.0",
+      "threads": {
+        "OPENBLAS_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": null
+      }
+    },
+    "statistiques": {
+      "highs": {
+        "n_retraits": 918,
+        "avec_vague": 909,
+        "delestage_incremental_nul": 8,
+        "n_fractions_incrementales_negatives": 0,
+        "fraction_min": 0.0,
+        "fraction_mediane": 0.6353872077022423,
+        "fraction_q90": 0.7401276502829863,
+        "fraction_max": 1.0,
+        "evitables": 20484,
+        "forcees": 58157,
+        "part_evitable_secondaires": 0.2604748159357078,
+        "part_evitable_avec_retraits_initiaux": 0.25746929951356856,
+        "premieres_vagues_uniquement_evitables": 422,
+        "part_premieres_vagues_uniquement_evitables": 0.46424642464246424,
+        "secondes_cumulees": 1696.7606481999392
+      },
+      "min_charge_max": {
+        "n_retraits": 918,
+        "avec_vague": 489,
+        "delestage_incremental_nul": 579,
+        "n_fractions_incrementales_negatives": 162,
+        "fraction_min": -3.612300255670761e-12,
+        "fraction_mediane": 7.883159670189122e-17,
+        "fraction_q90": 0.6353872070668551,
+        "fraction_max": 0.8934420460135939,
+        "evitables": 2179,
+        "forcees": 18544,
+        "part_evitable_secondaires": 0.10514886840708391,
+        "part_evitable_avec_retraits_initiaux": 0.10068850792477242,
+        "premieres_vagues_uniquement_evitables": 2,
+        "part_premieres_vagues_uniquement_evitables": 0.00408997955010225,
+        "secondes_cumulees": 472.34072770003695
+      },
+      "min_redispatch": {
+        "n_retraits": 918,
+        "avec_vague": 662,
+        "delestage_incremental_nul": 478,
+        "n_fractions_incrementales_negatives": 130,
+        "fraction_min": -9.99999931031406e-10,
+        "fraction_mediane": 2.425587590827422e-16,
+        "fraction_q90": 0.6728439768442797,
+        "fraction_max": 0.9310922958159256,
+        "evitables": 3885,
+        "forcees": 24787,
+        "part_evitable_secondaires": 0.135498046875,
+        "part_evitable_avec_retraits_initiaux": 0.1312943562014194,
+        "premieres_vagues_uniquement_evitables": 175,
+        "part_premieres_vagues_uniquement_evitables": 0.26435045317220546,
+        "secondes_cumulees": 486.313335200015
+      }
+    },
+    "statistiques_par_reseau": {
+      "anneau_cordes_20261113": {
+        "highs": {
+          "n_fractions_incrementales_negatives": 0,
+          "fraction_min": 0.2320686694530017
+        },
+        "min_charge_max": {
+          "n_fractions_incrementales_negatives": 4,
+          "fraction_min": -3.638381386241133e-17
+        },
+        "min_redispatch": {
+          "n_fractions_incrementales_negatives": 0,
+          "fraction_min": 6.0639689770685546e-18
+        }
+      },
+      "anneau_cordes_20261114": {
+        "highs": {
+          "n_fractions_incrementales_negatives": 0,
+          "fraction_min": 0.2318607990731692
+        },
+        "min_charge_max": {
+          "n_fractions_incrementales_negatives": 21,
+          "fraction_min": -1.5159922442671388e-16
+        },
+        "min_redispatch": {
+          "n_fractions_incrementales_negatives": 11,
+          "fraction_min": -1.1521541056430254e-16
+        }
+      },
+      "gilbert_20261113": {
+        "highs": {
+          "n_fractions_incrementales_negatives": 0,
+          "fraction_min": 0.32442332991884865
+        },
+        "min_charge_max": {
+          "n_fractions_incrementales_negatives": 5,
+          "fraction_min": -3.0319844885342774e-17
+        },
+        "min_redispatch": {
+          "n_fractions_incrementales_negatives": 11,
+          "fraction_min": -9.999997491123368e-10
+        }
+      },
+      "gilbert_20261114": {
+        "highs": {
+          "n_fractions_incrementales_negatives": 0,
+          "fraction_min": 0.0
+        },
+        "min_charge_max": {
+          "n_fractions_incrementales_negatives": 34,
+          "fraction_min": -1.0915144158723399e-16
+        },
+        "min_redispatch": {
+          "n_fractions_incrementales_negatives": 26,
+          "fraction_min": -9.99999931031406e-10
+        }
+      },
+      "geometrique_20261113": {
+        "highs": {
+          "n_fractions_incrementales_negatives": 0,
+          "fraction_min": 0.5686461167083197
+        },
+        "min_charge_max": {
+          "n_fractions_incrementales_negatives": 19,
+          "fraction_min": -4.2447782839479884e-17
+        },
+        "min_redispatch": {
+          "n_fractions_incrementales_negatives": 8,
+          "fraction_min": -9.999998279439335e-10
+        }
+      },
+      "geometrique_20261114": {
+        "highs": {
+          "n_fractions_incrementales_negatives": 0,
+          "fraction_min": 0.0
+        },
+        "min_charge_max": {
+          "n_fractions_incrementales_negatives": 13,
+          "fraction_min": -2.4255875908274218e-17
+        },
+        "min_redispatch": {
+          "n_fractions_incrementales_negatives": 39,
+          "fraction_min": -9.999998097520266e-10
+        }
+      },
+      "grille": {
+        "highs": {
+          "n_fractions_incrementales_negatives": 0,
+          "fraction_min": 0.3176351511226421
+        },
+        "min_charge_max": {
+          "n_fractions_incrementales_negatives": 50,
+          "fraction_min": -3.612300255670761e-12
+        },
+        "min_redispatch": {
+          "n_fractions_incrementales_negatives": 29,
+          "fraction_min": -3.6122396159809902e-12
+        }
+      },
+      "arbre_temoin": {
+        "highs": {
+          "n_fractions_incrementales_negatives": 0,
+          "fraction_min": 0.0
+        },
+        "min_charge_max": {
+          "n_fractions_incrementales_negatives": 16,
+          "fraction_min": -2.304308211286051e-16
+        },
+        "min_redispatch": {
+          "n_fractions_incrementales_negatives": 6,
+          "fraction_min": -1.7790991260668165e-10
+        }
+      }
+    },
+    "prorata_par_reseau": {
+      "anneau_cordes_20261113": {
+        "prorata_faisable": false,
+        "prorata_violations": "limites_transport",
+        "classification_intacte_applicable": false,
+        "n_saturees_intact": null,
+        "n_evitables_intact": null
+      },
+      "anneau_cordes_20261114": {
+        "prorata_faisable": false,
+        "prorata_violations": "limites_transport",
+        "classification_intacte_applicable": false,
+        "n_saturees_intact": null,
+        "n_evitables_intact": null
+      },
+      "gilbert_20261113": {
+        "prorata_faisable": false,
+        "prorata_violations": "limites_transport",
+        "classification_intacte_applicable": false,
+        "n_saturees_intact": null,
+        "n_evitables_intact": null
+      },
+      "gilbert_20261114": {
+        "prorata_faisable": false,
+        "prorata_violations": "limites_transport",
+        "classification_intacte_applicable": false,
+        "n_saturees_intact": null,
+        "n_evitables_intact": null
+      },
+      "geometrique_20261113": {
+        "prorata_faisable": false,
+        "prorata_violations": "limites_transport",
+        "classification_intacte_applicable": false,
+        "n_saturees_intact": null,
+        "n_evitables_intact": null
+      },
+      "geometrique_20261114": {
+        "prorata_faisable": false,
+        "prorata_violations": "limites_transport",
+        "classification_intacte_applicable": false,
+        "n_saturees_intact": null,
+        "n_evitables_intact": null
+      },
+      "grille": {
+        "prorata_faisable": false,
+        "prorata_violations": "limites_transport",
+        "classification_intacte_applicable": false,
+        "n_saturees_intact": null,
+        "n_evitables_intact": null
+      },
+      "arbre_temoin": {
+        "prorata_faisable": false,
+        "prorata_violations": "limites_transport",
+        "classification_intacte_applicable": false,
+        "n_saturees_intact": null,
+        "n_evitables_intact": null
+      }
+    },
+    "n_reseaux": 8,
+    "n_lignes_csv": 32,
+    "secondes_mur": 809.887159,
+    "secondes_diagnostic_intact_commun": 46.452876800030936,
+    "prorata_faisables": 0,
+    "definition": "Fractions brutes regroup?es sur tous les retraits. Les valeurs n?gatives restent dans les donn?es et leurs effectifs et minima documentent les r?sidus num?riques. Les pannes secondaires excluent le retrait impos?.",
+    "reproductibilite": {
+      "reference_comparee": "a2f2d90:docs/departage_n1/retraits.csv",
+      "n_retraits_comparables": 2754,
+      "tolerance_absolue_fraction": 1e-12,
+      "n_lignes_en_ecart": 25,
+      "n_lignes_en_ecart_par_regle": {
+        "highs": 3,
+        "min_redispatch": 21,
+        "min_charge_max": 1
+      },
+      "n_fractions_en_ecart": 5,
+      "ecart_absolu_max_fraction": 0.21794404114319987,
+      "fichier_ecarts": "ecarts_archive_20261117.csv",
+      "sha256_retraits_archive_v3_lf": "e14e1db4c388dc6bb17cc83ab4887ef17a4b4aa6ba05885a3276b0b6a004b08a"
+    }
+  },
+  "audit": {
+    "run_id": "departage-20261117-audit-verifie",
+    "environnement": {
+      "python": "3.11.9",
+      "plateforme": "Windows-10-10.0.26300-SP0",
+      "numpy": "2.3.4",
+      "scipy": "1.16.3",
+      "highs": "1.8.0",
+      "threads": {
+        "OPENBLAS_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": null
+      }
+    },
+    "statistiques": {
+      "highs": {
+        "n_retraits": 287,
+        "avec_vague": 287,
+        "delestage_incremental_nul": 0,
+        "fraction_mediane": 0.5939146350856382,
+        "fraction_q90": 0.6874761912002634,
+        "fraction_max": 0.8274919221625405,
+        "evitables": 4712,
+        "forcees": 13496,
+        "part_evitable_secondaires": 0.2587873462214411,
+        "part_evitable_avec_retraits_initiaux": 0.25477155988104894,
+        "premieres_vagues_uniquement_evitables": 133,
+        "part_premieres_vagues_uniquement_evitables": 0.4634146341463415,
+        "secondes_cumulees": 140.9062289999565
+      },
+      "min_charge_max": {
+        "n_retraits": 287,
+        "avec_vague": 154,
+        "delestage_incremental_nul": 158,
+        "fraction_mediane": -6.67036587477541e-17,
+        "fraction_q90": 0.5969726110747741,
+        "fraction_max": 0.8844207305907701,
+        "evitables": 972,
+        "forcees": 5944,
+        "part_evitable_secondaires": 0.14054366685945632,
+        "part_evitable_avec_retraits_initiaux": 0.13494377342773844,
+        "premieres_vagues_uniquement_evitables": 0,
+        "part_premieres_vagues_uniquement_evitables": 0.0,
+        "secondes_cumulees": 50.61561119998805
+      },
+      "min_redispatch": {
+        "n_retraits": 287,
+        "avec_vague": 227,
+        "delestage_incremental_nul": 115,
+        "fraction_mediane": 0.19310269238356517,
+        "fraction_q90": 0.6474079797036407,
+        "fraction_max": 0.7980540256883621,
+        "evitables": 1482,
+        "forcees": 7446,
+        "part_evitable_secondaires": 0.16599462365591397,
+        "part_evitable_avec_retraits_initiaux": 0.16082474226804125,
+        "premieres_vagues_uniquement_evitables": 73,
+        "part_premieres_vagues_uniquement_evitables": 0.32158590308370044,
+        "secondes_cumulees": 55.16821680008434
+      }
+    },
+    "n_reseaux": 3,
+    "n_lignes_csv": 12,
+    "secondes_mur": 170.032595,
+    "secondes_diagnostic_intact_commun": 5.595464599900879,
+    "prorata_faisables": 0,
+    "definition": "Fractions agregées sur tous les retraits, sans moyenne des medianes par reseau; pannes secondaires hors retrait impose."
+  }
+}

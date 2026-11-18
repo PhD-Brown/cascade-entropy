@@ -16,6 +16,7 @@ import numpy as np
 import scipy
 
 from ._validation import entier_positif, serie_finie
+from ._optimisation_dispatch_n1 import valider_options
 from .n1 import ResultatRedispatchN1, composantes_actives, redispatch_exact
 from .reseau import Reseau, angles, matrice_incidence
 from .topologies_n1 import Topologie, vers_reseau
@@ -228,6 +229,7 @@ def attribuer(
     puissance_max: Valeurs, reserves_minimales: Valeurs, reactances: Valeurs,
     capacites: Capacites, base_mva: float, unite_puissance: str,
     unite_reactance: str, departage: str = "highs",
+    production_precedente: np.ndarray | None = None,
 ) -> EtatElectrique:
     """Attribue, redispatche l'intact et contrôle ses contraintes sans filtrage.
 
@@ -236,12 +238,16 @@ def attribuer(
     cette base. Aucune conversion d'ohms ou de base de réactance n'est devinée.
     Les exceptions de solveur remontent avec leur cause. Le délestage et les
     réserves insuffisantes restent dans le résultat et sont signalés.
+
+    Les règles N−1 sont optionnelles. ``min_redispatch`` demande une production
+    antérieure explicite, dans l'unité de puissance d'entrée et l'ordre du
+    placement. En mode flux_reference, la même règle et la même production
+    antérieure sont employées pour les deux dispatchs (aucun chaînage caché).
     """
     base = _reel(base_mva, "base_mva", strict=True)
     if unite_puissance not in ("pu", "MW") or unite_reactance != "pu":
         raise ValueError("Unités acceptées : puissance pu ou MW, réactance pu sur la base commune.")
-    if departage != "highs":
-        raise ValueError("Seul departage='highs' est autorisé dans ce banc.")
+    precedente = valider_options(departage, production_precedente, len(placement.generateurs))
     # Topologie est mutable : revalider une copie, sans réordonner en silence
     # des identifiants auxquels des valeurs électriques seraient déjà liées.
     copie = Topologie(**asdict(topologie))
@@ -287,10 +293,13 @@ def attribuer(
         "unite_puissance": unite_puissance, "unite_reactance": unite_reactance,
         "departage": departage,
     })
+    if precedente is not None:
+        configuration["production_precedente"] = precedente.tolist()
     masque = np.zeros(reseau.n_lignes, dtype=bool)
 
     def resoudre_intact():
-        sol = redispatch_exact(reseau, d, pmax, masque, departage=departage)
+        options = {} if precedente is None else {"production_precedente": precedente / facteur}
+        sol = redispatch_exact(reseau, d, pmax, masque, departage=departage, **options)
         inj, theta = _controler(reseau, d, pmax, sol)
         return sol, inj, theta
 

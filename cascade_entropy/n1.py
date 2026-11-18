@@ -14,6 +14,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .dispatch import resoudre
+from ._optimisation_dispatch_n1 import departager, valider_options
 from .reseau import Reseau
 
 
@@ -87,6 +88,7 @@ def redispatch_exact(
     *,
     limites: np.ndarray | None = None,
     departage: str = "highs",
+    production_precedente: np.ndarray | None = None,
 ) -> ResultatRedispatchN1:
     """Redispatch exact sur les composantes d'un réseau avec lignes retirées.
 
@@ -95,11 +97,13 @@ def redispatch_exact(
     est nulle. Pour chaque îlot avec génération ET charge, on réutilise le
     programme linéaire public de :func:`cascade_entropy.dispatch.resoudre`.
 
-    Important : ``highs`` est la seule règle admise pour ce premier banc maillé.
+    ``highs`` conserve exactement l'appel historique. ``min_charge_max``
+    minimise le taux maximal à service optimal ; les autres flux peuvent rester
+    non uniques. ``min_redispatch`` minimise la somme des variations absolues
+    de production et exige ``production_precedente``, alignée sur les générateurs.
     Le départage scientifique définitif reste à discuter avec Patrick.
     """
-    if departage != "highs":
-        raise ValueError("Pour ce banc maillé, seul departage='highs' est accepté.")
+    precedente = valider_options(departage, production_precedente, len(reseau.generateurs))
     if reseau.n_noeuds < 1:
         raise ValueError("Le réseau doit posséder au moins un nœud.")
     if np.intersect1d(reseau.generateurs, reseau.charges).size:
@@ -177,8 +181,17 @@ def redispatch_exact(
                 demande[indices_c],
                 limites=limites[indices_l],
                 puissance_max=puissance_max[indices_g],
-                departage=departage,
+                departage="highs",
             )
+            if departage != "highs":
+                g, s, f, strategie = departager(
+                    ilot, demande[indices_c], puissance_max[indices_g],
+                    float(sol.charge_servie.sum()), departage,
+                    None if precedente is None else precedente[indices_g],
+                )
+                sol.production, sol.charge_servie, sol.flux = g, s, f
+                if strategie != "highs":
+                    n_secours += int(not sol.secours)
         except Exception as exc:
             raise RuntimeError(
                 f"Échec de redispatch dans l'îlot {k}, nœuds {noeuds.tolist()} : {exc}"

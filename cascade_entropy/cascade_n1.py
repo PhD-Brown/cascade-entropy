@@ -124,6 +124,15 @@ def _valider_p1(
     return p
 
 
+def _valider_departage_intact(departage, departage_intact):
+    if departage == "min_redispatch":
+        if not isinstance(departage_intact, str) or departage_intact not in ("highs", "min_charge_max"):
+            raise ValueError("Avec min_redispatch, choisissez explicitement departage_intact : "
+                             "highs ou min_charge_max.")
+    elif departage_intact is not None:
+        raise ValueError("departage_intact est réservé à departage='min_redispatch'.")
+
+
 def simuler_cascade_n1(
     reseau: Reseau,
     demande: np.ndarray,
@@ -134,6 +143,7 @@ def simuler_cascade_n1(
     rng: np.random.Generator | None = None,
     limites: np.ndarray | None = None,
     departage: str = "highs",
+    departage_intact: str | None = None,
 ) -> ResultatCascadeN1:
     """Simule une perte N−1 imposée, puis la propagation secondaire.
 
@@ -145,9 +155,15 @@ def simuler_cascade_n1(
     aléatoire fourni (sauf la consommation normale de tirages RNG).
     Les erreurs de redispatch remontent explicitement et ne se transforment
     jamais en délestage nul silencieux.
+
+    Avec ``min_redispatch``, choisissez explicitement ``highs`` ou
+    ``min_charge_max`` dans ``departage_intact`` pour la référence. Chaque état suivant minimise
+    l'écart à la production de l'état immédiatement précédent. Pour les autres
+    règles, laissez ``departage_intact`` à ``None`` : la référence utilise ``departage``.
     """
     ligne = _valider_ligne(reseau, ligne_initiale)
     p = _valider_p1(p1, rng)
+    _valider_departage_intact(departage, departage_intact)
 
     # Les données d'entrée sont figées localement pour préserver le cas de base.
     demande_fixe = np.array(demande, dtype=float, copy=True)
@@ -158,13 +174,17 @@ def simuler_cascade_n1(
     # Base intacte : nécessaire pour rendre observable tout délestage préexistant.
     etat_reference = redispatch_exact(
         reseau, demande_fixe, puissance_fixe, masque,
-        limites=limites_fixes, departage=departage,
+        limites=limites_fixes,
+        departage=departage_intact if departage == "min_redispatch" else departage,
     )
 
     masque[ligne] = True
+    options = {} if departage != "min_redispatch" else {
+        "production_precedente": etat_reference.production,
+    }
     etat = redispatch_exact(
         reseau, demande_fixe, puissance_fixe, masque,
-        limites=limites_fixes, departage=departage,
+        limites=limites_fixes, departage=departage, **options,
     )
     etats = [etat]
     vagues: list[np.ndarray] = []
@@ -190,9 +210,12 @@ def simuler_cascade_n1(
 
         masque[tombent] = True
         vagues.append(tombent.copy())
+        options = {} if departage != "min_redispatch" else {
+            "production_precedente": etat.production,
+        }
         etat = redispatch_exact(
             reseau, demande_fixe, puissance_fixe, masque,
-            limites=limites_fixes, departage=departage,
+            limites=limites_fixes, departage=departage, **options,
         )
         etats.append(etat)
 
@@ -215,6 +238,7 @@ def simuler_tous_retraits_n1(
     graine: int | None = None,
     limites: np.ndarray | None = None,
     departage: str = "highs",
+    departage_intact: str | None = None,
 ) -> list[ResultatCascadeN1]:
     """Évalue chaque retrait N−1 à partir du même réseau intact.
 
@@ -224,6 +248,8 @@ def simuler_tous_retraits_n1(
 
     Ceci est une commodité de validation A6, pas encore une campagne de
     production avec stockage et analyses statistiques.
+
+    ``departage_intact`` est obligatoire avec ``min_redispatch`` et réservé à cette règle.
     """
     if graine is not None:
         if isinstance(graine, (bool, np.bool_)) or not isinstance(graine, Integral) or graine < 0:
@@ -231,6 +257,7 @@ def simuler_tous_retraits_n1(
     p = _valider_p1(p1, None, exiger_rng=False)
     if 0 < p < 1 and graine is None:
         raise ValueError("graine obligatoire pour une campagne avec 0 < p1 < 1.")
+    _valider_departage_intact(departage, departage_intact)
     resultats = []
     for ligne in range(reseau.n_lignes):
         rng = None if p in (0, 1) else np.random.default_rng(
@@ -240,6 +267,7 @@ def simuler_tous_retraits_n1(
             simuler_cascade_n1(
                 reseau, demande, puissance_max, ligne,
                 p1=p, rng=rng, limites=limites, departage=departage,
+                departage_intact=departage_intact,
             )
         )
     return resultats

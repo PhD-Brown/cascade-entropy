@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import asdict, dataclass
+from hashlib import sha256
+from pathlib import Path
 
 import numpy as np
 
@@ -21,6 +23,8 @@ from .topologies_n1 import Topologie, vers_reseau
 
 CLE = "integration_b4_c"
 FORMAT = "cascade-entropy-integration-b4-c-v1"
+FORMAT_V2 = "cascade-entropy-integration-b4-c-v2"
+_SOURCES_DISPATCH = ("dispatch.py", "n1.py", "_optimisation_dispatch_n1.py", "attribution_n1.py")
 
 
 @dataclass
@@ -54,6 +58,9 @@ def _valider(etat):
         raise TypeError("Un EtatElectrique B4 est requis, jamais un résultat de cascade.")
     cfg, r = etat.configuration, etat.reseau
     try:
+        if isinstance(cfg, dict) and cfg.get("departage") == "min_redispatch":
+            raise ValueError("min_redispatch est réservé à la cascade : calculez l'état B4 "
+                             "avec la règle departage_intact (highs ou min_charge_max).")
         entier_positif(r.reference, "reference réseau", minimum=0)
         for nom in ("lignes", "generateurs", "charges"):
             if np.asarray(getattr(r, nom)).dtype.kind not in "iu":
@@ -70,13 +77,14 @@ def _valider(etat):
         p._cles(cfg, ("topologie", "placement", "demande", "puissance_max",
             "reserves_minimales", "reactances", "capacites", "base_mva",
             "unite_puissance", "unite_reactance", "departage"), "configuration B4")
+        if cfg["departage"] not in ("highs", "min_charge_max"):
+            raise ValueError("Départage B4 incompatible avec l'intégration.")
         t = Topologie(**cfg["topologie"])
         if p._canonique(b4._json_copie(asdict(t))) != p._canonique(cfg["topologie"]):
             raise ValueError("La topologie B4 doit conserver les indices canoniques A3.")
         base = b4._reel(cfg["base_mva"], "base_mva", strict=True)
-        if (cfg["unite_puissance"] not in ("pu", "MW")
-                or cfg["unite_reactance"] != "pu" or cfg["departage"] != "highs"):
-            raise ValueError("Unités ou départage B4 incompatibles.")
+        if cfg["unite_puissance"] not in ("pu", "MW") or cfg["unite_reactance"] != "pu":
+            raise ValueError("Unités B4 incompatibles.")
         facteur = base if cfg["unite_puissance"] == "MW" else 1.0
         placement = b4.Placement(**cfg["placement"])
         ref = entier_positif(placement.reference, "reference", minimum=0)
@@ -159,9 +167,19 @@ def _diagnostic(sol):
 
 
 def _contrat(etat):
-    return dict(format=FORMAT, configuration_b4=deepcopy(etat.configuration),
+    format_integration = _format_integration(etat.configuration["departage"])
+    contrat = dict(format=format_integration, configuration_b4=deepcopy(etat.configuration),
         environnement_b4=deepcopy(etat.environnement), avertissements=list(etat.avertissements),
         final=_diagnostic(etat.resultat), reference=_diagnostic(etat.resultat_reference))
+    if format_integration == FORMAT_V2:
+        contrat["sources_dispatch_sha256"] = {
+            nom: sha256(Path(__file__).with_name(nom).read_bytes()).hexdigest()
+            for nom in _SOURCES_DISPATCH}
+    return contrat
+
+
+def _format_integration(departage):
+    return FORMAT if departage == "highs" else FORMAT_V2
 
 
 def _electrique(etat):
@@ -200,7 +218,8 @@ def _electrique(etat):
         ("angles", etat.angles, "noeud", "rad")):
         ajouter(nom, a, [axe], unite, "état intact final ; base commune B4")
     return dict(base_puissance={"valeur": etat.configuration["base_mva"], "unite": "MVA"},
-        conventions={"format": FORMAT, "orientation": "u vers v ; F=b(theta_u-theta_v)",
+        conventions={"format": _format_integration(etat.configuration["departage"]),
+                     "orientation": "u vers v ; F=b(theta_u-theta_v)",
                      "injections": "G-L_servie", "puissances": "pu sur la base MVA déclarée"},
         champs=champs)
 
@@ -237,10 +256,20 @@ def charger_etat_initial(dossier) -> EtatInitialIntegre:
     realisation = p.charger_realisation(dossier)
     try:
         contrat = realisation.metadata["parametres_experience"][CLE]
-        p._cles(contrat, ("format", "configuration_b4", "environnement_b4", "avertissements",
-                          "final", "reference"), "contrat transversal")
-        if contrat["format"] != FORMAT:
+        format_integration = contrat["format"]
+        if format_integration not in (FORMAT, FORMAT_V2):
             raise ValueError("Version d'intégration B4/C non prise en charge.")
+        cles = ("format", "configuration_b4", "environnement_b4", "avertissements", "final", "reference")
+        if format_integration == FORMAT_V2:
+            cles += ("sources_dispatch_sha256",)
+        p._cles(contrat, cles, "contrat transversal")
+        if format_integration == FORMAT_V2:
+            sources = contrat["sources_dispatch_sha256"]
+            p._cles(sources, _SOURCES_DISPATCH, "sources_dispatch_sha256")
+            for valeur in sources.values():
+                if (not isinstance(valeur, str) or len(valeur) != 64
+                        or any(c not in "0123456789abcdef" for c in valeur)):
+                    raise ValueError("Empreinte de source de dispatch SHA-256 invalide.")
         if type(contrat["avertissements"]) is not list:
             raise ValueError("Liste explicite d'avertissements B4 requise.")
         cfg = deepcopy(contrat["configuration_b4"])
@@ -272,6 +301,8 @@ def charger_etat_initial(dossier) -> EtatInitialIntegre:
             lire("reserves_satisfaites")[r.generateurs], tuple(contrat["avertissements"]),
             cfg, deepcopy(contrat["environnement_b4"]), solution("reference_", contrat["reference"]))
         _valider(e)
+        if format_integration != _format_integration(cfg["departage"]):
+            raise ValueError("Version d'intégration B4/C incompatible avec le départage.")
         # Reconstitution du contrat : refuse les unités/axes/dtypes/rangs altérés,
         # les valeurs hors des rôles et les champs électriques manquants/inattendus.
         if p._canonique(_electrique(e)) != p._canonique(realisation.metadata["electrique"]):
