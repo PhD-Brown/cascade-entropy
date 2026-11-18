@@ -28,6 +28,7 @@ GENERATEURS = {
     for nom in ("anneau_cordes", "grille", "gilbert", "geometrique", "arbre_temoin")
 }
 STATUTS = ("demonstration", "validation", "campagne_scientifique")
+PARAMETRES_REELS = {"gilbert": "p", "geometrique": "rayon"}
 
 
 @dataclass
@@ -159,6 +160,38 @@ def _valider_electrique(d, t):
             raise ValueError(f"Forme du champ {nom} incompatible avec les identifiants : {forme}.")
 
 
+def _reel_generation(famille, valeur):
+    """Valide uniquement p/rayon, sans réécrire leur représentation JSON.
+
+    Les générateurs convertissent ces deux grandeurs en float. Un entier doit
+    donc y être exactement représentable ; aucun arrondi supplémentaire n'est
+    admis par la persistance. Les booléens ne sont jamais des grandeurs réelles.
+    """
+    try:
+        if type(valeur) not in (int, float):
+            raise ValueError("Paramètre réel natif requis (pas un booléen).")
+        reel = float(valeur)
+        if not math.isfinite(reel) or reel != valeur:
+            raise ValueError("Paramètre réel non représentable exactement en float fini.")
+    except OverflowError as erreur:
+        raise ValueError("Paramètre réel non représentable exactement en float fini.") from erreur
+    if reel <= 0 or (famille == "gilbert" and reel > 1):
+        raise ValueError("Paramètre réel hors du domaine du générateur connexe.")
+    return reel
+
+
+def _parametres_egaux(famille, a, b):
+    """Égalité numérique ciblée ; tous les autres champs restent typés stricts."""
+    if a.keys() != b.keys():
+        return False
+    return all(
+        _reel_generation(famille, a[nom]) == _reel_generation(famille, b[nom])
+        if nom == PARAMETRES_REELS.get(famille)
+        else _canonique(a[nom]) == _canonique(b[nom])
+        for nom in a
+    )
+
+
 def _arguments(famille, arguments):
     if famille not in GENERATEURS:
         raise ValueError(f"Famille non prise en charge : {famille}.")
@@ -170,6 +203,8 @@ def _arguments(famille, arguments):
     except TypeError as erreur:
         raise ValueError(f"Arguments de génération invalides : {erreur}") from erreur
     liaison.apply_defaults()
+    if famille in PARAMETRES_REELS:
+        _reel_generation(famille, liaison.arguments[PARAMETRES_REELS[famille]])
     return dict(liaison.arguments)
 
 
@@ -185,7 +220,7 @@ def verifier_reproduction(realisation):
     autre = GENERATEURS[t.famille](**arguments)
     if (autre.famille != t.famille or autre.n_noeuds != t.n_noeuds
             or autre.graine != t.graine or autre.essais != t.essais
-            or _canonique(autre.parametres) != _canonique(t.parametres)
+            or not _parametres_egaux(t.famille, autre.parametres, t.parametres)
             or not np.array_equal(autre.lignes, t.lignes)
             or not np.array_equal(autre.positions, t.positions)):
         raise ValueError("La régénération ne reproduit pas exactement la topologie fournie.")
@@ -237,7 +272,8 @@ def _valider_metadata(d, t, definition):
     if t.graine is not None:
         attendus["graine"] = t.graine
     for nom, valeur in attendus.items():
-        if nom not in arguments or _canonique(arguments[nom]) != _canonique(valeur):
+        if nom not in arguments or not _parametres_egaux(
+                t.famille, {nom: arguments[nom]}, {nom: valeur}):
             raise ValueError(f"Argument {nom} incohérent avec la topologie.")
     if t.famille == "grille" and arguments["n_lignes"] * arguments["n_colonnes"] != t.n_noeuds:
         raise ValueError("Dimensions de grille incohérentes.")

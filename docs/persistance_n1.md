@@ -85,6 +85,22 @@ explicitement les scalaires NumPy et les tuples avant de les y placer. Les
 tableaux électriques passent par `champ_numerique()`. Les clés JSON répétées,
 NaN, infinis et types implicitement convertibles sont refusés.
 
+Exception d'**égalité de validation**, sans réécriture des fichiers : pour les
+seuls paramètres réels `gilbert.p` et `geometrique.rayon`, `1` et `1.0` peuvent
+décrire la même grandeur. Un entier doit être exactement représentable en float
+fini, sans booléen ni arrondi ; les bornes du générateur restent imposées. Cette
+équivalence intervient dans la concordance des paramètres et la régénération.
+Les dimensions, graines, identifiants, statistiques, positions et tableaux typés
+gardent leurs comparaisons strictes. La canonicalisation JSON et les empreintes
+restent inchangées : une modification de représentation change toujours le
+checksum correspondant, et une définition topologique JSON différente conserve
+une identité différente. Les arguments d'origine ne sont pas convertis à l'écriture.
+
+Le raccordement permanent optionnel `integration_n1.sauver_etat_initial()` /
+`charger_etat_initial()` utilise ce format v1 sans le remplacer. Son contrat
+électrique versionné, ses rôles ordonnés et l'entrée intacte de C sont décrits
+dans [integration_b4_b5_c.md](integration_b4_b5_c.md).
+
 Les graines propres à d'autres étapes et leurs algorithmes, les options de
 solveur, règles de départage, seuils et paramètres de propagation devront être
 déposés dans `parametres_experience` dès qu'ils seront décidés. La graine de la
