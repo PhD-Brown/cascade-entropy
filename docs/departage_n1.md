@@ -592,6 +592,38 @@ Décisions à discuter avec Patrick
   dans un futur protocole scientifique ?
 - Faut-il explorer ultérieurement un objectif strictement convexe ?
 
+### Synthèse de discussion prioritaire pour Patrick (sans décision implicite)
+
+Les constats ci-dessus obligent à traiter **ensemble** les paramètres suivants avant
+la campagne scientifique finale. Les alternatives déjà codées restent des
+**options de diagnostic**, pas des hypothèses physiques approuvées.
+
+| Décision P0 | Question à soumettre | Constat expérimental pertinent | À ne pas conclure |
+| --- | --- | --- | --- |
+| **Référence des capacités** | Limites indépendantes ou déduites d'un flux de référence ? Si `flux_reference`, quel départage pour calculer ce flux, quelle marge et quel plancher ? | Sur sept maillages, le minimax retrouve à quelques `10^-9` pu près la référence `highs` ayant servi à dimensionner les limites ; sur l'arbre, certains flux diffèrent jusqu'à 5 pu | Le dimensionnement `highs` n'est pas une vérité électrique ; cette circularité ne permet pas de déclarer le minimax « meilleur » |
+| **Dispatch intact et après incident** | Quelle règle d'intact (`highs` ou `min_charge_max`) ? Quelle politique de redispatch après chaque retrait (y compris `min_redispatch`) ? Faut-il représenter coûts, rampes ou contraintes supplémentaires ? | Le rang des gravités varie fortement entre politiques ; `min_charge_max` conserve huit flux non uniques sur l'arbre dans ce banc | Zéro non-unicité détectée sur les maillages ne prouve pas une unicité mathématique universelle ni une stabilité entre plateformes |
+| **Propagation secondaire** | Le seuil `rho >= 0.99` et la probabilité `p1` correspondent-ils au phénomène étudié ? Comment gérer les répétitions stochastiques si `0 < p1 < 1` ? | Sous `p1=1`, 909, 489 et 662 retraits sur 918 produisent une vague selon la règle ; certains scénarios et compteurs sont sensibles aux détails numériques | Une réduction des vagues ne valide pas une politique ; choisir `p1` pour lisser les données serait une sélection a posteriori |
+| **Mesure et analyse de la gravité** | Comment appliquer la fraction **finale** de demande délestée déjà prévue par l'issue #11 aux intacts préalablement délestés ? Quelle place donner au délestage **incrémental** du diagnostic, aux ex æquo, aux cas constants et aux autres observables ? | Le banc technique analyse des **fractions incrémentales** avec 63,07 % de zéros sous minimax ; les rangs Spearman entre **politiques** sont sensibles aux conventions de quasi-égalité | Les Spearman entre politiques ne constituent ni une mesure du pouvoir prédictif des centralités ni une autorisation de remplacer silencieusement la gravité principale |
+
+**Éléments techniques déjà disponibles :** diagnostics de non-unicité et de
+saturation, choix explicite de la règle d'intact pour `min_redispatch`,
+persistance B4/C v1 pour `highs` et v2 pour `min_charge_max`, contrôle
+de concordance des intacts et exports v3 traçables. Le format v2 **enregistre**
+les empreintes de sources et en vérifie la forme ; il ne garantit pas à lui
+seul l'identité du code exécuté lors d'une relecture ultérieure.
+
+**Décisions séparées à ne pas oublier :** les cinq variantes scientifiques
+des indicateurs de phase C, l'échantillonnage/topologie et les paramètres
+électriques B4 restent ouverts. Ne pas calculer de corrélation
+centralité–gravité ni lancer la campagne finale avant de figer ces choix
+conformément au protocole discuté le 28 octobre 2026.
+
+Le document maître de discussion, suivi indépendamment sur `main`, est
+[Décisions scientifiques à discuter avec Patrick](decisions_scientifiques_a_valider_patrick.md).
+Après fusion, y reporter les arbitrages complémentaires, sans modifier le
+corps de l'[issue #11](https://github.com/PhD-Brown/cascade-entropy/issues/11) ;
+l'avancement se consigne dans ses commentaires.
+
 Proposition pour `docs/journal.md` (non écrite dans ce fichier) :
 
 > 2026-11-17 — Instrumentation du départage N−1 sur graphes synthétiques.
