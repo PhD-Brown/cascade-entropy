@@ -1,7 +1,7 @@
 # Décisions scientifiques à discuter avec Patrick — Projet I (PHY-3202)
 
 > **Document de préparation à la discussion — non approuvé.**  
-> État au **17 novembre 2026 (Québec)**, après fusion des PR #13, #12, #14 et #15.  
+> État au **18 novembre 2026 (Québec)**, après fusion des PR #13, #12, #14, #15 et **#16**.  
 > **Objet :** réunir les questions dont les réponses modifieraient le protocole scientifique de la seconde partie du Projet I. **Aucune option listée ici n'est considérée comme adoptée du seul fait de son implémentation ou de sa présence dans les tests.**
 
 **Question de recherche maintenue :** les cinq indicateurs de lignes permettent-ils d'identifier les déclencheurs des cascades les plus graves **au-delà** du flux initial absolu et du taux de charge initial ?
@@ -30,7 +30,7 @@ Les priorités **P0** sont à trancher **avant la campagne scientifique finale**
 | Principe prédictif | Calculer les indicateurs **avant les retraits** ; ne jamais employer les conséquences d'une cascade comme entrée d'un score |
 | Historique | Ne pas modifier les reproductions Carreras (SO1–SO3), ni les conventions A3, sans décision explicite |
 
-**État logiciel au 17 novembre :** phases A et B intégrées ; les **sept scores de C sont implémentés et testés** ; la PR #15 fournit l'adaptateur permanent B4 → B5/B6 → C. Cela établit une disponibilité et une validation **techniques**, non le choix final des variantes ni la validité physique de la campagne. Les deux références électriques et les tests de petits graphes sont déjà cochés dans l'issue #11 ; les cinq cases de définition de C restent ouvertes.
+**État logiciel au 18 novembre :** phases A et B intégrées ; les **sept scores de C sont implémentés et testés** ; la PR #15 a fourni l'adaptateur permanent B4 → B5/B6 → C. La **PR #16 est maintenant fusionnée** : diagnostics de non-unicité et de saturations, alternatives de départage optionnelles, contrat de persistance v2 pour l'intact minimax, choix explicite de l'intact pour `min_redispatch` et résultats de validation synthétiques. **963 tests réussis** dans l'exécution locale d'Alex après fusion ; Codex et Claude rapportent également 963 réussites sur leurs environnements Windows et Linux. Il s'agit d'une validation **technique**, non d'une approbation des variantes, des hypothèses physiques ou de la campagne. Les deux références électriques et les tests de petits graphes sont déjà cochés dans l'issue #11 ; les cinq cases de définition scientifique de C restent ouvertes.
 
 ## 2. Priorité P0 — clore scientifiquement la phase C
 
@@ -136,6 +136,10 @@ Deux voies sont implémentées, **sans choix approuvé** :
 
 **Point critique de comparabilité :** avec capacités uniformes, flux et taux de charge conduisent au même classement ; si `C_e` suit proportionnellement `abs(F_e)`, le taux de charge peut devenir quasi constant. Il faut **documenter** ces dégénérescences éventuelles et les implications pour la question de recherche, pas ajuster les capacités afin de favoriser artificiellement un indicateur.
 
+**Découverte du diagnostic de départage (PR #16) :** sur le banc synthétique à capacités `flux_reference` communes, ces limites ont été taillées depuis un flux de référence `highs` ; sur les sept réseaux maillés, l'intact `min_charge_max` retrouve ce flux à quelques `10^-9` pu près. **La référence de dimensionnement conserve ainsi l'empreinte d'un optimum potentiellement arbitraire.** Sur l'arbre témoin, l'écart atteint environ **5 pu** pour une ligne alors que le taux de charge maximal reste proche de **2/3** : minimiser un maximum n'impose pas nécessairement tous les flux. Avec B4 en mode `flux_reference`, la règle sélectionnée est utilisée **tant pour le dispatch de référence que pour le dispatch final** ; un B4 minimax construit donc ses capacités depuis son propre flux minimax. Ce mécanisme doit être discuté indépendamment de toute « amélioration » apparente des cascades.
+
+**Questions supplémentaires à Patrick (P0) :** faut-il construire les capacités **indépendamment** d'un état de flux optimisé ou à partir de `flux_reference` ? Dans le second cas, quelle règle de dispatch pour la **référence de dimensionnement**, et comment éviter une circularité entre construction des limites, dispatch et taux de charge observés ? Quelle vérification de sensibilité serait définie **avant** de regarder les performances des indicateurs ?
+
 **Décision :** _à consigner_.
 
 ### B5 — Admission des états initiaux dégradés
@@ -148,29 +152,45 @@ B4 conserve et signale le délestage intact, les réserves insuffisantes et la d
 
 ## 4. Priorité P0 — cascade N−1, départage et résultats (phase D)
 
-### D1 — Propagation secondaire et caractère stochastique
+### D1 — Propagation secondaire, seuil et probabilité de panne
 
-Le moteur technique utilise aujourd'hui une ligne initiale retirée avec certitude puis des candidates au seuil **`rho >= 0.99`** ; chacune tombe avec une probabilité explicite `p1`. `p1=1` est un **réglage déterministe de test**, pas un paramètre final adopté.
+Le moteur technique impose la ligne initiale et examine les candidates avec `rho >= 0.99`, chacune tombant avec la probabilité explicite `p1`. Dans le diagnostic synthétique **PR #16**, `p1=1` ; il s'agit d'un **réglage de test**, non d'un choix scientifique approuvé.
 
-**Questions :** quelle valeur/loi de `p1` et quel seuil de saturation retenir ? Si `0<p1<1`, combien de répétitions indépendantes par retrait et comment agréger la gravité sans confondre bruit stochastique et différences entre lignes ? Quelles graines et règles de répétition faut-il conserver pour rendre l'expérience rejouable ?
+**Observations sur huit réseaux synthétiques (918 retraits par règle, capacités communes fixées depuis `highs`) :** nombre de retraits entraînant une vague secondaire : **909** avec `highs`, **489** avec `min_charge_max`, **662** avec `min_redispatch` initialisé sur l'intact minimax. Il ne faut pas en déduire que le minimax est physiquement préférable ni attribuer automatiquement une part de délestage final aux saturations évitables. Les secondes défaillances dépendent de toute l'histoire des redispatchs et de l'îlotage.
 
-**Décision :** _à consigner_.
-
-### D2 — Dispatch, optimum non unique et état de référence
-
-Le banc maillé utilise actuellement `departage="highs"`. La lecture B4/B5/C conserve **le vrai intact final sauvegardé**, mais la simulation `simuler_cascade_n1()` **recalcule** un intact avant le retrait.
-
-**Questions :** cette convention de départage convient-elle scientifiquement aux réseaux maillés ? Comment qualifier les optima multiples ? Quelle politique suivre si le flux, la production ou la charge servie du dispatch intact recalculé diffèrent du snapshot persistant, malgré les mêmes paramètres ? Quels écarts sont numériques, et lesquels remettent en cause la comparabilité des prédicteurs et des cascades ?
-
-**Action technique possible immédiatement :** ajouter au **pilote** une vérification explicite de concordance, avec diagnostic d'écarts, **sans décider silencieusement d'une nouvelle règle physique**.
+**Questions à arbitrer :** que doit représenter une ligne à 99 % ou 100 % de sa capacité alors que le dispatch respecte déjà des contraintes de transport ? Le seuil `0.99` et `p1` sont-ils justifiables physiquement ? Si `0 < p1 < 1`, quel nombre de réalisations stochastiques par retrait et quelles conventions d'agrégation, de graines et d'incertitude utiliser ? Ne pas choisir `p1` dans le seul but de rendre la distribution de gravité plus continue.
 
 **Décision :** _à consigner_.
 
-### D3 — Gravité, îlotage, échec et statut des observations
+### D2 — Départage de l'optimum DC et état intact utilisé
 
-**Déjà fixé par #11 :** gravité principale `S_e = (D0 - D_servie_finale,e) / D0`, pour `D0>0` ; indicateurs complémentaires de nombre de lignes tombées et d'îlotage.
+Le service maximal constitue l'objectif primaire. Lorsque plusieurs dispatchs satisfont ce même optimum, le solveur peut sélectionner différentes productions et saturations. La PR #16 propose, **sans les adopter**, trois comportements : `highs` (défaut historique préservé), `min_charge_max` (minimiser le taux de charge maximal à service maximal, à la tolérance déclarée près) et `min_redispatch` (minimiser l'écart de production avec l'état précédent).
 
-**Questions :** quels diagnostics secondaires sont indispensables ? Comment distinguer mathématiquement et dans les tables l'îlotage, les capacités saturées, le délestage préexistant et les échecs d'optimisation ? Quelles règles de **signalement/exclusion préétablies** appliquer aux scénarios non résolus, sans jamais les convertir en délestage nul ?
+**Interface maintenant disponible :** la persistance B4/B5/C accepte les intacts `highs` (contrat v1 inchangé) et `min_charge_max` (contrat v2, avec empreintes de sources du dispatch). `min_redispatch` est une politique de **cascade**, dont le départ est obligatoirement défini par `departage_intact="highs"` ou `"min_charge_max"`. Les empreintes du contrat v2 documentent les sources et leur forme ; elles ne garantissent pas à elles seules que l'environnement de relecture exécute exactement le même code.
+
+**Observations :** au seuil numérique testé, les sept réseaux maillés n'ont pas de flux déclarés non uniques sur la face minimax ; l'arbre témoin conserve **huit flux** déclarés non uniques. Cela ne démontre **pas** une unicité mathématique universelle, ni une identité bit à bit des flux entre plateformes.
+
+**Questions à arbitrer :** quel départage de l'intact et quelle politique de redispatch après retrait représentent les hypothèses physiques de l'étude ? Que signifie « minimiser le redispatch » sans rampes, coûts et délais d'exploitation ? Comment traiter un optimum secondaire lui-même non unique ? Quelle règle appliquer lors de la construction du dispatch de référence des **capacités** (voir B4) ? Faut-il imposer un départage tertiaire et, si oui, à partir de quelle justification, **pas** en fonction des classements obtenus ?
+
+**Décision :** _à consigner_.
+
+### D3 — Gravité, délestage préexistant, îlots et échecs
+
+**Déjà fixé dans l'issue #11 :** gravité principale `S_e = (D0 - D_servie_finale,e) / D0` pour `D0 > 0`, avec observables complémentaires de pertes de lignes et d'îlotage. **Le diagnostic PR #16 utilise pour sa comparaison technique une fraction de délestage *incrémental*.** Ce n'est **pas** une modification automatique de la définition principale. Il faut expliciter le traitement des états initialement délestés pour relier les deux mesures.
+
+Dans le banc de diagnostic, les retraits avec fraction incrémentale considérée nulle (tolérance `|f| <= 1e-9`) sont **8/918** sous `highs`, **579/918** sous minimax et **478/918** sous `min_redispatch`. Quelques fractions brutes sont très légèrement négatives à cause des tolérances du solveur : elles sont **conservées** et comptées, non transformées silencieusement en zéro. Les égalités nombreuses réduisent l'information d'un classement de Spearman ; cela n'autorise pas à modifier la gravité pour rendre l'analyse plus commode.
+
+**Questions :** quelles règles préspécifiées pour accepter/exclure les intacts délestés, pour `D0=0` et pour les cas non résolus ? Quels diagnostics d'îlotage, de saturation, de délai et de solveur doivent figurer dans les tables de résultat ? Comment présenter séparément la gravité principale finale et les métriques incrémentales complémentaires, sans convertir un échec numérique en gravité nulle ?
+
+**Décision :** _à consigner_.
+
+### D4 — Reproductibilité numérique et seuils discontinus
+
+Le run synthétique `departage-20261118-v3` a comparé **2 754 retraits** à l'archive antérieure : **25** lignes diffèrent sur au moins un compteur ou une fraction, dont **cinq fractions** de plus de `10^-12`. Le plus grand écart de fraction est d'environ **0,2179**. Les 25 écarts sont archivés ; les rejeux ciblés du code initial reproduisent les nouvelles valeurs et le rejeu Linux indépendant communiqué à Codex confirme les cinq fractions v3 considérées à environ `10^-10` près. L'origine des valeurs de l'ancienne archive n'a **pas** été reconstituée. Certaines trajectoires individuelles restent sensibles aux conditions numériques ; les agrégats publiés demeurent proches à leur précision d'affichage.
+
+**Hypothèse non démontrée :** le seuil `0.99`, `p1=1` et la dégénérescence des programmes linéaires peuvent amplifier de faibles différences numériques en changements discontinus des vagues. Ne pas présenter cette explication comme une cause prouvée pour chaque retrait.
+
+**Questions :** quel niveau de reproductibilité exiger pour les trajectoires individuelles, pour les agrégats par réseau et pour l'interprétation physique ? Quelles tolérances et conventions de classement/ex æquo doivent être enregistrées à l'avance ? Quels écarts justifient une investigation numérique, la qualification d'un cas comme indéterminé ou une analyse de sensibilité préspécifiée ?
 
 **Décision :** _à consigner_.
 
@@ -182,7 +202,7 @@ Le banc maillé utilise actuellement `departage="highs"`. La lecture B4/B5/C con
 
 1. **Sens et unité d'analyse :** comment calculer et résumer les corrélations par réalisation, famille et au total ? Quels scores sont orientés vers la gravité croissante ?
 2. **Événements les plus graves :** seuil de gravité, fraction `top-k` ou autre règle de sélection, **fixée avant** de voir les succès des indicateurs.
-3. **Ex æquo et constantes :** que rapporter lorsque tous les délestages sont nuls/identiques, que les scores sont constants ou que des lignes ont le même rang ? Une corrélation non définie ne doit pas être remplacée silencieusement par zéro.
+3. **Ex æquo et constantes :** que rapporter lorsque tous les délestages sont nuls/identiques, que les scores sont constants ou que des lignes ont le même rang ? Une corrélation non définie ne doit pas être remplacée silencieusement par zéro. Le diagnostic PR #16 calcule les Spearman **entre politiques de départage** après passage de `|f| <= 10^-9` à zéro puis arrondi à neuf décimales, en conservant aussi la version brute : ce traitement n'est **pas** automatiquement la règle statistique finale. Sur les sept réseaux maillés du banc, les Spearman traités `highs`–minimax vont d'environ **0,096 à 0,393** ; ce ne sont **pas** des corrélations centralité–gravité.
 4. **Répétitions stochastiques et incertitude :** niveau d'agrégation, mesure de variabilité entre réseaux et nombre minimal d'échantillons interprétables.
 5. **Comparaisons multiples :** quels résultats seront principaux, quels résultats exploratoires, et comment éviter la sélection a posteriori du meilleur indicateur ?
 6. **Diagnostics complémentaires :** dans quelle mesure le nombre de lignes perdues, la présence de ponts et le type de cascade seront-ils discutés sans remplacer le critère principal ?
@@ -215,7 +235,7 @@ Le banc maillé utilise actuellement `departage="highs"`. La lecture B4/B5/C con
 | --- | --- | --- | --- |
 | C1–C6 | _En attente_ | _En attente_ | Configuration des cinq indicateurs et conventions de classement |
 | B1–B5 | _En attente_ | _En attente_ | Topologies, état physique initial et règles d'inclusion |
-| D1–D3 | _En attente_ | _En attente_ | Cascade, redispatch, gestion des échecs et observables |
+| D1–D4 | _En attente_ | _En attente_ | Propagation, départage, observables, reproductibilité |
 | E | _En attente_ | _En attente_ | Analyse statistique préspécifiée |
 | P1 | _En attente, facultatif_ | _En attente_ | Sensibilités et extensions éventuelles |
 
@@ -229,6 +249,9 @@ Le banc maillé utilise actuellement `departage="highs"`. La lecture B4/B5/C con
 - [Persistance des réalisations B5/B6](persistance_n1.md)
 - [Adaptateur transversal B4 → B5/B6 → C](integration_b4_b5_c.md)
 - [Historique d'intégration de la PR #15](https://github.com/PhD-Brown/cascade-entropy/pull/15)
+- [PR #16 — diagnostic du départage N−1, fusionnée](https://github.com/PhD-Brown/cascade-entropy/pull/16)
+- [Rapport du départage : méthodes, tests, audit v3 et écarts numériques](departage_n1.md)
+- [Archive des 25 écarts de reproductibilité](departage_n1/ecarts_archive_20261117.csv)
 - [Tableau de vérification des sources #10](https://github.com/PhD-Brown/cascade-entropy/issues/10)
 
 **Note de confidentialité :** ce document public ne contient aucun jeu de données, banc d'essai ou matériel à diffusion restreinte.
