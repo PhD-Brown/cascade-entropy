@@ -1,0 +1,34 @@
+{
+  "run_id": "departage-20261118-v3",
+  "source": "retraits.csv",
+  "sha256_source": "a21d28579ae6365d2fbe8d0f8bc813ebd46b768e41ef953bef69214ff869c0fc",
+  "environnement": {
+    "python": "3.11.9",
+    "plateforme": "Windows-10-10.0.26300-SP0",
+    "numpy": "2.3.4",
+    "scipy": "1.16.3",
+    "highs": "1.8.0",
+    "threads": {
+      "OPENBLAS_NUM_THREADS": "1",
+      "OMP_NUM_THREADS": "1",
+      "MKL_NUM_THREADS": null
+    }
+  },
+  "parametres": {
+    "regles": [
+      "highs",
+      "min_charge_max",
+      "min_redispatch"
+    ],
+    "tolerance_zero_fraction": 1e-09,
+    "decimales_rangs": 9,
+    "seuils_gravite": [
+      0.05,
+      0.3
+    ],
+    "spearman": "scipy.stats.spearmanr, rangs moyens pour les ex aequo",
+    "ex_aequo": "nombre de valeurs appartenant à un groupe d'au moins deux valeurs égales",
+    "gravite_et_mediane": "fractions brutes, médiane de toutes les valeurs hors de la classe nulle",
+    "reseau_vide": "agrégation de tous les retraits, sans pondération par réseau"
+  }
+}
