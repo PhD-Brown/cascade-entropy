@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import ProcessPoolExecutor
+import csv
 from dataclasses import asdict
 from datetime import datetime, timezone
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -20,7 +22,6 @@ import subprocess
 import sys
 import tempfile
 from time import perf_counter
-import csv
 
 import numpy as np
 import scipy
@@ -102,10 +103,15 @@ def mesurer(nom, etat, regle, variabilite, variabilite_minmax):
     else:
         intact = redispatch_exact(r, d, p, np.zeros(r.n_lignes, bool),
                                  departage="min_charge_max" if regle == "min_redispatch" else regle)
-    sat, _ = D.lignes_saturees(intact)
-    ev, _ = D.classer_saturations(intact, variabilite)
+    applicable = prorata is None or prorata.faisable
+    n_saturees = n_evitables = None
+    if applicable:
+        sat, _ = D.lignes_saturees(intact)
+        ev, _ = D.classer_saturations(intact, variabilite)
+        n_saturees, n_evitables = len(sat), len(ev)
     ligne = {"reseau": nom, "regle": regle, "n_lignes": r.n_lignes,
-        "n_saturees_intact": len(sat), "n_evitables_intact": len(ev),
+        "n_saturees_intact": n_saturees, "n_evitables_intact": n_evitables,
+        "classification_intacte_applicable": applicable,
         "taux_max_intact": float(np.nanmax(intact.taux_de_charge)),
         "charge_max_minimale": float(max(variabilite.charge_max_minimale)),
         "n_flux_non_uniques": variabilite.n_flux_non_uniques,
@@ -114,8 +120,8 @@ def mesurer(nom, etat, regle, variabilite, variabilite_minmax):
         "prorata_violations": None if prorata is None else ";".join(prorata.violations)}
     details = []
     if regle != "prorata":
-        cascades = simuler_tous_retraits_n1(r, d, p, p1=1., departage=regle,
-                                           departage_intact="min_charge_max")
+        options = {"departage_intact": "min_charge_max"} if regle == "min_redispatch" else {}
+        cascades = simuler_tous_retraits_n1(r, d, p, p1=1., departage=regle, **options)
         for cascade in cascades:
             diagnostic = D.diagnostiquer_cascade(cascade, r, p)
             details.append({"retrait": cascade.ligne_initiale,
@@ -126,6 +132,8 @@ def mesurer(nom, etat, regle, variabilite, variabilite_minmax):
         uniquement = sum(a["diagnostic"]["part_premiere_vague_uniquement_evitable"] == 1 for a in details)
         ligne.update({"n_retraits": len(cascades), "n_retraits_avec_vague": avec,
             "n_retraits_delestage_incremental_nul": int(np.count_nonzero(np.abs(fractions) <= 1e-9)),
+            "n_fractions_incrementales_negatives": int(np.count_nonzero(fractions < 0)),
+            "fraction_incrementale_min": float(fractions.min()),
             "fraction_incrementale_mediane": float(np.median(fractions)),
             "fraction_incrementale_q90": float(np.quantile(fractions, .9)),
             "fraction_incrementale_max": float(max(fractions)),
@@ -135,6 +143,7 @@ def mesurer(nom, etat, regle, variabilite, variabilite_minmax):
             "part_premieres_vagues_uniquement_evitables": uniquement / avec if avec else None})
     else:
         for cle in ("n_retraits", "n_retraits_avec_vague", "n_retraits_delestage_incremental_nul",
+                    "n_fractions_incrementales_negatives", "fraction_incrementale_min",
                     "fraction_incrementale_mediane", "fraction_incrementale_q90", "fraction_incrementale_max",
                     "n_tombees_evitables", "n_tombees_forcees", "n_premieres_vagues_uniquement_evitables",
                     "part_premieres_vagues_uniquement_evitables"):
@@ -148,7 +157,7 @@ def traiter_reseau(travail):
     nom, topo, sortie, regles = travail
     e = attribuer(topo)
     v = v_minmax = None
-    resumes = []
+    resultats = []
     for regle in regles:
         chemin = sortie / f"{nom}__{regle}.json"
         if chemin.exists():
@@ -167,8 +176,34 @@ def traiter_reseau(travail):
             contenu = mesurer(nom, e, regle, v, v_minmax)
             _sauver(chemin, contenu)
             print(f"Terminé {nom} / {regle} : {contenu['resume']['secondes']:.1f} s", flush=True)
-        resumes.append(contenu["resume"])
-    return resumes
+        resultats.append(contenu)
+    return resultats
+
+
+def ligne_retrait(resume, detail):
+    diagnostic = detail["diagnostic"]
+    vagues = diagnostic["vagues"]
+    return {"reseau": resume["reseau"], "regle": resume["regle"],
+            "retrait": detail["retrait"], "fraction_incrementale": detail["fraction_incrementale"],
+            "n_vagues": len(vagues), "n_evitables": diagnostic["n_evitables"],
+            "n_forcees": diagnostic["n_forcees"],
+            "premiere_vague_uniquement_evitable": diagnostic["part_premiere_vague_uniquement_evitable"],
+            "premiere_vague_contient_saturation_intacte": bool(vagues and vagues[0]["deja_saturees_intact"]),
+            "n_deja_saturees_intact": sum(len(vague["deja_saturees_intact"]) for vague in vagues)}
+
+
+def sauver_csv(chemin, lignes):
+    f = io.StringIO(newline="")
+    writer = csv.DictWriter(f, fieldnames=list(lignes[0]))
+    writer.writeheader()
+    writer.writerows(lignes)
+    texte = f.getvalue()
+    if chemin.exists():
+        if chemin.read_bytes() != texte.encode("utf-8"):
+            raise ValueError(f"CSV existant différent : reprise refusée ({chemin.name}).")
+    else:
+        with chemin.open("x", encoding="utf-8", newline="") as fichier:
+            fichier.write(texte)
 
 
 def main(argv=None):
@@ -216,20 +251,12 @@ def main(argv=None):
     else:
         with ProcessPoolExecutor(max_workers=args.workers) as pool:
             groupes = list(pool.map(traiter_reseau, travaux))
-    resumes = [ligne for groupe in groupes for ligne in groupe]
-    import io
-    f = io.StringIO(newline="")
-    writer = csv.DictWriter(f, fieldnames=list(resumes[0]))
-    writer.writeheader()
-    writer.writerows(resumes)
-    texte_csv = f.getvalue()
-    csv_path = sortie / "comparatif.csv"
-    if csv_path.exists():
-        if csv_path.read_bytes() != texte_csv.encode("utf-8"):
-            raise ValueError("CSV existant différent : reprise refusée.")
-    else:
-        with csv_path.open("x", encoding="utf-8", newline="") as fichier:
-            fichier.write(texte_csv)
+    resultats = [resultat for groupe in groupes for resultat in groupe]
+    resumes = [resultat["resume"] for resultat in resultats]
+    retraits = [ligne_retrait(resultat["resume"], detail)
+                for resultat in resultats for detail in resultat["retraits"]]
+    sauver_csv(sortie / "comparatif.csv", resumes)
+    sauver_csv(sortie / "retraits.csv", retraits)
     _sauver(sortie / "complete.json", {"fin_utc": datetime.now(timezone.utc).isoformat(), "n_lignes_csv": len(resumes)})
     return 0
 
