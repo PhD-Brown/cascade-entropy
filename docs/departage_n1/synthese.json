@@ -1,0 +1,138 @@
+{
+  "principal": {
+    "run_id": "departage-20261117-verifie",
+    "environnement": {
+      "python": "3.11.9",
+      "plateforme": "Windows-10-10.0.26300-SP0",
+      "numpy": "2.3.4",
+      "scipy": "1.16.3",
+      "highs": "1.8.0",
+      "threads": {
+        "OPENBLAS_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": null
+      }
+    },
+    "statistiques": {
+      "highs": {
+        "n_retraits": 918,
+        "avec_vague": 909,
+        "delestage_incremental_nul": 8,
+        "fraction_mediane": 0.6353872077022423,
+        "fraction_q90": 0.7401276502829863,
+        "fraction_max": 1.0,
+        "evitables": 20482,
+        "forcees": 58156,
+        "part_evitable_secondaires": 0.2604593199216664,
+        "part_evitable_avec_retraits_initiaux": 0.25745386897279904,
+        "premieres_vagues_uniquement_evitables": 422,
+        "part_premieres_vagues_uniquement_evitables": 0.46424642464246424,
+        "secondes_cumulees": 698.9407647998305
+      },
+      "min_charge_max": {
+        "n_retraits": 918,
+        "avec_vague": 489,
+        "delestage_incremental_nul": 579,
+        "fraction_mediane": 2.4255875908274218e-17,
+        "fraction_q90": 0.6353872070668551,
+        "fraction_max": 0.8934420460135937,
+        "evitables": 2180,
+        "forcees": 18543,
+        "part_evitable_secondaires": 0.10519712396853738,
+        "part_evitable_avec_retraits_initiaux": 0.10073471651032762,
+        "premieres_vagues_uniquement_evitables": 2,
+        "part_premieres_vagues_uniquement_evitables": 0.00408997955010225,
+        "secondes_cumulees": 189.56069439987186
+      },
+      "min_redispatch": {
+        "n_retraits": 918,
+        "avec_vague": 662,
+        "delestage_incremental_nul": 477,
+        "fraction_mediane": 2.1830288317446798e-16,
+        "fraction_q90": 0.6728439768442795,
+        "fraction_max": 0.9310922958159253,
+        "evitables": 3872,
+        "forcees": 24794,
+        "part_evitable_secondaires": 0.1350729086722947,
+        "part_evitable_avec_retraits_initiaux": 0.13088155759870201,
+        "premieres_vagues_uniquement_evitables": 175,
+        "part_premieres_vagues_uniquement_evitables": 0.26435045317220546,
+        "secondes_cumulees": 205.902830200037
+      }
+    },
+    "n_reseaux": 8,
+    "n_lignes_csv": 32,
+    "secondes_mur": 338.733258,
+    "secondes_diagnostic_intact_commun": 21.2046586999204,
+    "prorata_faisables": 0,
+    "definition": "Fractions agregées sur tous les retraits, sans moyenne des medianes par reseau; pannes secondaires hors retrait impose."
+  },
+  "audit": {
+    "run_id": "departage-20261117-audit-verifie",
+    "environnement": {
+      "python": "3.11.9",
+      "plateforme": "Windows-10-10.0.26300-SP0",
+      "numpy": "2.3.4",
+      "scipy": "1.16.3",
+      "highs": "1.8.0",
+      "threads": {
+        "OPENBLAS_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": null
+      }
+    },
+    "statistiques": {
+      "highs": {
+        "n_retraits": 287,
+        "avec_vague": 287,
+        "delestage_incremental_nul": 0,
+        "fraction_mediane": 0.5939146350856382,
+        "fraction_q90": 0.6874761912002634,
+        "fraction_max": 0.8274919221625405,
+        "evitables": 4712,
+        "forcees": 13496,
+        "part_evitable_secondaires": 0.2587873462214411,
+        "part_evitable_avec_retraits_initiaux": 0.25477155988104894,
+        "premieres_vagues_uniquement_evitables": 133,
+        "part_premieres_vagues_uniquement_evitables": 0.4634146341463415,
+        "secondes_cumulees": 140.9062289999565
+      },
+      "min_charge_max": {
+        "n_retraits": 287,
+        "avec_vague": 154,
+        "delestage_incremental_nul": 158,
+        "fraction_mediane": -6.67036587477541e-17,
+        "fraction_q90": 0.5969726110747741,
+        "fraction_max": 0.8844207305907701,
+        "evitables": 972,
+        "forcees": 5944,
+        "part_evitable_secondaires": 0.14054366685945632,
+        "part_evitable_avec_retraits_initiaux": 0.13494377342773844,
+        "premieres_vagues_uniquement_evitables": 0,
+        "part_premieres_vagues_uniquement_evitables": 0.0,
+        "secondes_cumulees": 50.61561119998805
+      },
+      "min_redispatch": {
+        "n_retraits": 287,
+        "avec_vague": 227,
+        "delestage_incremental_nul": 115,
+        "fraction_mediane": 0.19310269238356517,
+        "fraction_q90": 0.6474079797036407,
+        "fraction_max": 0.7980540256883621,
+        "evitables": 1482,
+        "forcees": 7446,
+        "part_evitable_secondaires": 0.16599462365591397,
+        "part_evitable_avec_retraits_initiaux": 0.16082474226804125,
+        "premieres_vagues_uniquement_evitables": 73,
+        "part_premieres_vagues_uniquement_evitables": 0.32158590308370044,
+        "secondes_cumulees": 55.16821680008434
+      }
+    },
+    "n_reseaux": 3,
+    "n_lignes_csv": 12,
+    "secondes_mur": 170.032595,
+    "secondes_diagnostic_intact_commun": 5.595464599900879,
+    "prorata_faisables": 0,
+    "definition": "Fractions agregées sur tous les retraits, sans moyenne des medianes par reseau; pannes secondaires hors retrait impose."
+  }
+}

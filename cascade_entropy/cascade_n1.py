@@ -134,6 +134,7 @@ def simuler_cascade_n1(
     rng: np.random.Generator | None = None,
     limites: np.ndarray | None = None,
     departage: str = "highs",
+    departage_intact: str = "highs",
 ) -> ResultatCascadeN1:
     """Simule une perte N−1 imposée, puis la propagation secondaire.
 
@@ -145,9 +146,16 @@ def simuler_cascade_n1(
     aléatoire fourni (sauf la consommation normale de tirages RNG).
     Les erreurs de redispatch remontent explicitement et ne se transforment
     jamais en délestage nul silencieux.
+
+    Avec ``min_redispatch``, ``departage_intact`` choisit ``highs`` (défaut)
+    ou ``min_charge_max`` pour la référence. Chaque état suivant minimise
+    l'écart à la production de l'état immédiatement précédent. Pour les autres
+    règles, la référence utilise directement ``departage``.
     """
     ligne = _valider_ligne(reseau, ligne_initiale)
     p = _valider_p1(p1, rng)
+    if not isinstance(departage_intact, str) or departage_intact not in ("highs", "min_charge_max"):
+        raise ValueError("departage_intact doit être highs ou min_charge_max.")
 
     # Les données d'entrée sont figées localement pour préserver le cas de base.
     demande_fixe = np.array(demande, dtype=float, copy=True)
@@ -158,13 +166,17 @@ def simuler_cascade_n1(
     # Base intacte : nécessaire pour rendre observable tout délestage préexistant.
     etat_reference = redispatch_exact(
         reseau, demande_fixe, puissance_fixe, masque,
-        limites=limites_fixes, departage=departage,
+        limites=limites_fixes,
+        departage=departage_intact if departage == "min_redispatch" else departage,
     )
 
     masque[ligne] = True
+    options = {} if departage != "min_redispatch" else {
+        "production_precedente": etat_reference.production,
+    }
     etat = redispatch_exact(
         reseau, demande_fixe, puissance_fixe, masque,
-        limites=limites_fixes, departage=departage,
+        limites=limites_fixes, departage=departage, **options,
     )
     etats = [etat]
     vagues: list[np.ndarray] = []
@@ -190,9 +202,12 @@ def simuler_cascade_n1(
 
         masque[tombent] = True
         vagues.append(tombent.copy())
+        options = {} if departage != "min_redispatch" else {
+            "production_precedente": etat.production,
+        }
         etat = redispatch_exact(
             reseau, demande_fixe, puissance_fixe, masque,
-            limites=limites_fixes, departage=departage,
+            limites=limites_fixes, departage=departage, **options,
         )
         etats.append(etat)
 
@@ -215,6 +230,7 @@ def simuler_tous_retraits_n1(
     graine: int | None = None,
     limites: np.ndarray | None = None,
     departage: str = "highs",
+    departage_intact: str = "highs",
 ) -> list[ResultatCascadeN1]:
     """Évalue chaque retrait N−1 à partir du même réseau intact.
 
@@ -240,6 +256,7 @@ def simuler_tous_retraits_n1(
             simuler_cascade_n1(
                 reseau, demande, puissance_max, ligne,
                 p1=p, rng=rng, limites=limites, departage=departage,
+                departage_intact=departage_intact,
             )
         )
     return resultats

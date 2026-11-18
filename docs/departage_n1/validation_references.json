@@ -1,0 +1,92 @@
+{
+  "provenance": "comparaison directe avec le script fourni, sans integration de son code",
+  "archive_sha256": "9aa6939b418c903ac5d1a6dbde7a8bd14ba3d1411dbd95c4c975b19248caf794",
+  "reference_source_sha256": "38737fdb1da71220a1126c08767f557cff1296e15e45b6c2d9a7f62d1488d5e8",
+  "python": "3.13.7",
+  "numpy": "2.3.3",
+  "scipy": "1.16.2",
+  "resultats": [
+    {
+      "famille": "gilbert",
+      "mode_capacites": "uniformes",
+      "n_lignes": 127,
+      "n_saturees": 5,
+      "n_evitables": 5,
+      "n_forcees": 0,
+      "n_non_uniques": 126,
+      "t_min_reference": 0.7313550395802155,
+      "t_min_nouveau": 0.7313550379839144,
+      "ecart_max_plages": 8.623209216129801e-09,
+      "ecart_t_min": 1.5963010913111475e-09
+    },
+    {
+      "famille": "gilbert",
+      "mode_capacites": "flux_reference",
+      "n_lignes": 127,
+      "n_saturees": 8,
+      "n_evitables": 8,
+      "n_forcees": 0,
+      "n_non_uniques": 126,
+      "t_min_reference": 0.6666666666666639,
+      "t_min_nouveau": 0.6666666659999998,
+      "ecart_max_plages": 2.972187318484032e-08,
+      "ecart_t_min": 6.666640572916549e-10
+    },
+    {
+      "famille": "anneau_cordes",
+      "mode_capacites": "uniformes",
+      "n_lignes": 75,
+      "n_saturees": 13,
+      "n_evitables": 0,
+      "n_forcees": 13,
+      "n_non_uniques": 9,
+      "t_min_reference": 0.9999999999999998,
+      "t_min_nouveau": 0.9999999984377602,
+      "ecart_max_plages": 2.946806709203109e-06,
+      "ecart_t_min": 1.5622395599379502e-09
+    },
+    {
+      "famille": "anneau_cordes",
+      "mode_capacites": "flux_reference",
+      "n_lignes": 75,
+      "n_saturees": 3,
+      "n_evitables": 3,
+      "n_forcees": 0,
+      "n_non_uniques": 75,
+      "t_min_reference": 0.6666666666666655,
+      "t_min_nouveau": 0.6666666659999997,
+      "ecart_max_plages": 4.028748046280839e-08,
+      "ecart_t_min": 6.666658336484943e-10
+    },
+    {
+      "famille": "grille",
+      "mode_capacites": "uniformes",
+      "n_lignes": 85,
+      "n_saturees": 11,
+      "n_evitables": 0,
+      "n_forcees": 11,
+      "n_non_uniques": 0,
+      "t_min_reference": 0.9999999999999993,
+      "t_min_nouveau": 0.9999999979109695,
+      "ecart_max_plages": 4.064188969254978e-07,
+      "ecart_t_min": 2.089029838003853e-09
+    },
+    {
+      "famille": "grille",
+      "mode_capacites": "flux_reference",
+      "n_lignes": 85,
+      "n_saturees": 5,
+      "n_evitables": 5,
+      "n_forcees": 0,
+      "n_non_uniques": 85,
+      "t_min_reference": 0.6666666666666663,
+      "t_min_nouveau": 0.6666666658625777,
+      "ecart_max_plages": 4.127297348333059e-08,
+      "ecart_t_min": 8.040885735027814e-10
+    }
+  ],
+  "sources_finales_sha256": {
+    "cascade_entropy/diagnostics_dispatch_n1.py": "fa1e74448a97d1e465ef76ea208cfe0fb81b2805f5d60ffd93ae17d34db915c2",
+    "cascade_entropy/_optimisation_dispatch_n1.py": "1db5d4253e925154a567fa8a6a963e4fb64eda4feb006e2b1dbd7318ffb3e8ec"
+  }
+}
